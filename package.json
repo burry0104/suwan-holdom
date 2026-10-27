@@ -1,0 +1,12 @@
+{
+  "name": "uri-holdem",
+  "version": "1.0.0",
+  "description": "친구들과 방 코드로 모여 즐기는 실시간 텍사스 홀덤",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
