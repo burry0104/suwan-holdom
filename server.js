@@ -1,4 +1,4 @@
-// 우리끼리 홀덤 — 실시간 서버
+// 수완고 종합게임 — 실시간 서버 (홀덤 · 블랙잭)
 // 실행: npm start  (외부 패키지 없음. PORT 환경변수가 있으면 그 포트 사용)
 // 서버 → 화면: Server-Sent Events(/events), 화면 → 서버: POST /api
 'use strict';
@@ -9,7 +9,12 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 
 const PORT = process.env.PORT || 3000;
-const PAGE = fs.readFileSync(path.join(__dirname, 'index.html'));
+// 검색엔진 소유 확인 코드: Render 환경변수 GOOGLE_VERIFY / NAVER_VERIFY 에 넣으면 페이지에 자동으로 들어가요
+const VERIFY_META = [
+  process.env.GOOGLE_VERIFY ? `<meta name="google-site-verification" content="${String(process.env.GOOGLE_VERIFY).replace(/[^\w\-]/g, '')}">` : '',
+  process.env.NAVER_VERIFY ? `<meta name="naver-site-verification" content="${String(process.env.NAVER_VERIFY).replace(/[^\w\-]/g, '')}">` : ''
+].join('');
+const PAGE = Buffer.from(fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').replace('<!--VERIFY-->', VERIFY_META));
 const PAGE_GZ = zlib.gzipSync(PAGE, { level: 9 });
 const PAGE_ETAG = '"' + crypto.createHash('sha1').update(PAGE).digest('hex').slice(0, 16) + '"';
 
@@ -542,7 +547,7 @@ class Room {
     const turnSeat = hd.tu >= 0 ? this.seats[hd.tu] : null;
     const lim = turnSeat ? this.turnLimit(turnSeat) : Infinity;
     return {
-      code: this.code, status: this.status, set: this.settings, msg: this.msg, champ: this.champ,
+      game: 'holdem', code: this.code, status: this.status, set: this.settings, msg: this.msg, champ: this.champ,
       seats: this.seats.map(s => ({ id: s.id, n: s.name, s: s.stack, b: s.bet, f: s.folded ? 1 : 0, a: s.allIn ? 1 : 0, ac: s.acted ? 1 : 0, ih: s.inHand ? 1 : 0, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, sh: s.shown || 0, bc: s.best || 0, la: s.la, w: s.won, hn: s.hn, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, pp: s.popped ? 1 : 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '' })),
       h: {
         no: hd.no, d: hd.d, sb: hd.sbI, bb: hd.bbI, st: hd.st, bd: hd.bd, pot: hd.pot, cb: hd.cb, mr: hd.mr, tu: hd.tu, sq: hd.sq, res: hd.res,
@@ -560,6 +565,383 @@ class Room {
     c.emit('state', { ...pub, me, hole, isHost: pid === this.hostPid, lk: seat && seat.lucky ? 1 : 0 });
   }
   broadcast() { const pub = this.publicState(); for (const c of this.socks) this.sendTo(c, pub); }
+}
+
+/* ================= 블랙잭 ================= */
+// 규칙: 6덱 슈, 딜러는 소프트 17에서 스탠드, 블랙잭 3:2, 더블(첫 2장), 스플릿 1번(같은 숫자 값), 스플릿 후 더블 가능.
+// 딜러가 A나 10을 보이면 블랙잭인지 먼저 확인(피크)하고, 블랙잭이면 바로 정산.
+const BJ_DECKS = 6;
+const cardVal = c => c[0] === 'A' ? 11 : 'TJQK'.includes(c[0]) ? 10 : +c[0];
+function bjTotal(cards) {
+  let t = 0, aces = 0;
+  for (const c of cards) { t += cardVal(c); if (c[0] === 'A') aces++; }
+  while (t > 21 && aces) { t -= 10; aces--; }
+  return { t, soft: aces > 0 };
+}
+const isBJ = (cards, fromSplit) => !fromSplit && cards.length === 2 && bjTotal(cards).t === 21;
+function newShoe() {
+  const d = [];
+  for (let k = 0; k < BJ_DECKS; k++) for (const r of RANKS) for (const su of SUITS) d.push(r + su);
+  for (let i = d.length - 1; i > 0; i--) { const j = randInt(i + 1); [d[i], d[j]] = [d[j], d[i]]; }
+  return d;
+}
+// 기본 전략 (딜러 S17, 더블 애프터 스플릿 허용)
+function basicStrategy(cards, up, canDouble, canSplit) {
+  const u = cardVal(up) === 11 ? 11 : cardVal(up);
+  const { t, soft } = bjTotal(cards);
+  if (canSplit && cards.length === 2 && cardVal(cards[0]) === cardVal(cards[1])) {
+    const p = cardVal(cards[0]);
+    if (p === 11 || p === 8) return 'split';
+    if (p === 9 && u !== 7 && u <= 9) return 'split';
+    if ((p === 2 || p === 3 || p === 7) && u <= 7) return 'split';
+    if (p === 6 && u <= 6) return 'split';
+    if (p === 4 && (u === 5 || u === 6)) return 'split';
+  }
+  if (soft && t < 21) {
+    if (t >= 19) return 'stand';
+    if (t === 18) { if (u >= 3 && u <= 6) return canDouble ? 'double' : 'stand'; return u <= 8 ? 'stand' : 'hit'; }
+    if (t === 17) return (u >= 3 && u <= 6 && canDouble) ? 'double' : 'hit';
+    if (t >= 15) return (u >= 4 && u <= 6 && canDouble) ? 'double' : 'hit';
+    return (u >= 5 && u <= 6 && canDouble) ? 'double' : 'hit';
+  }
+  if (t >= 17) return 'stand';
+  if (t >= 13) return u <= 6 ? 'stand' : 'hit';
+  if (t === 12) return (u >= 4 && u <= 6) ? 'stand' : 'hit';
+  if (t === 11) return (u <= 10 && canDouble) ? 'double' : 'hit';
+  if (t === 10) return (u <= 9 && canDouble) ? 'double' : 'hit';
+  if (t === 9) return (u >= 3 && u <= 6 && canDouble) ? 'double' : 'hit';
+  return 'hit';
+}
+function bjBotMove(room, s, hand) {
+  const L = s.lv || 'normal';
+  const up = room.r.dl[0];
+  const canDouble = hand.cards.length === 2 && s.stack >= hand.bet;
+  const canSplit = room.canSplit(s, hand);
+  const { t } = bjTotal(hand.cards);
+  if (L === 'easy') {
+    if (canSplit && cardVal(hand.cards[0]) === 11 && rnd() < 0.6) return 'split';
+    if (canDouble && t === 11 && rnd() < 0.4) return 'double';
+    return t < 15 || (t < 17 && rnd() < 0.4) ? 'hit' : 'stand';
+  }
+  const best = basicStrategy(hand.cards, up, canDouble, canSplit);
+  if (L === 'normal' && rnd() < 0.12) return t < 13 ? 'hit' : (rnd() < 0.5 ? 'hit' : 'stand');
+  return best;
+}
+function bjBotBet(room, s) {
+  const mb = room.settings.minBet, L = s.lv || 'normal';
+  let units = L === 'easy' ? 1 + randInt(4) : L === 'hard' ? 2 + randInt(2) : 1 + randInt(3);
+  if (rnd() < 0.08) units *= 3;
+  return Math.max(mb, Math.min(s.stack, units * mb));
+}
+
+class BJRoom extends Room {
+  constructor(code) {
+    super(code);
+    this.game = 'bj';
+    this.settings = { stack: 1000, minBet: 20, timer: 30 };
+    this.shoe = newShoe();
+    this.r = this.blankRound(0);
+    this.dealerAt = 0; this.betEnd = 0;
+  }
+  blankRound(sq) { return { no: 0, sq, st: 'idle', tu: -1, hi: 0, dl: [], hide: true, line: '', dealerBJ: false, lucky: null }; }
+  newSeat(pid, name) { const s = super.newSeat(pid, name); s.bj = { want: 0, ok: false, sit: false, inR: false, hands: [], net: 0 }; return s; }
+  resetBJ(s) { s.bj = { want: s.bj ? s.bj.want : 0, ok: false, sit: false, inR: false, hands: [], net: 0 }; s.won = 0; }
+  reveal() { return false; }
+  live() { return this.r.st === 'bet' || this.r.st === 'play' || this.r.st === 'dealer'; }
+
+  /* ---- 카드 뽑기 (행운 모드면 원하는 카드를 슈 위쪽에서 골라옴) ---- */
+  draw(prefs) {
+    if (prefs && prefs.length) {
+      const top = this.shoe.length - 1, lim = Math.max(0, top - 30);
+      for (const pred of prefs) {
+        for (let k = top; k >= lim; k--) if (pred(this.shoe[k])) { const t = this.shoe[top]; this.shoe[top] = this.shoe[k]; this.shoe[k] = t; return this.shoe.pop(); }
+      }
+    }
+    return this.shoe.pop();
+  }
+  luckySeat() { const r = this.r; return r.lucky ? this.seats.find(s => s.id === r.lucky) : null; }
+  luckyBest() {
+    const ls = this.luckySeat(); if (!ls) return 0;
+    let b = 0; for (const h of ls.bj.hands) { const t = bjTotal(h.cards).t; if (t <= 21 && t > b) b = t; }
+    return b;
+  }
+
+  /* ---- 진행 ---- */
+  startRound() {
+    const r = this.r, now = Date.now();
+    this.seats.forEach(s => this.resetBJ(s));
+    const humanHere = this.seats.some(s => !s.bot && s.online);
+    const mb = this.settings.minBet;
+    this.seats.forEach(s => { s.out = s.stack < mb; });
+    const elig = this.seats.filter(s => s.online && !s.out);
+    if (!humanHere || !elig.length) {
+      r.st = 'idle'; r.sq++; this.msg = !humanHere ? '접속한 사람이 없어서 쉬는 중이에요' : '베팅할 칩이 있는 사람이 없어요. 방장이 리바이를 해 주세요';
+      this.nextAt = now + 3000; this.dirty = true; return;
+    }
+    this.msg = '';
+    if (this.shoe.length < 52 * BJ_DECKS * 0.25) { this.shoe = newShoe(); this.log('카드를 새로 섞었어요'); }
+    r.no++; r.sq++; r.st = 'bet'; r.tu = -1; r.hi = 0; r.dl = []; r.hide = true; r.line = ''; r.dealerBJ = false;
+    const lucky = this.seats.find(s => s.lucky && elig.includes(s));
+    r.lucky = lucky && rnd() < LUCKY_RATE ? lucky.id : null;
+    elig.forEach(s => {
+      s.bj.inR = true;
+      s.bj.want = Math.max(mb, Math.min(s.stack, s.bj.want || mb));
+      if (s.bot) { s.bj.botAt = now + 700 + randInt(1600); }
+    });
+    this.betEnd = this.settings.timer ? now + 15000 : 0;
+    this.log(`#${r.no} 베팅 시작`);
+    this.dirty = true;
+  }
+  bjMsg(pid, msg) {
+    const r = this.r, i = this.seats.findIndex(s => s.pid === pid), s = this.seats[i];
+    if (!s) return;
+    const a = String(msg.a || '');
+    if (r.st === 'bet' && s.bj.inR && !s.bj.ok) {
+      const mb = this.settings.minBet;
+      if (a === 'bet') { s.bj.want = Math.max(mb, Math.min(s.stack, Math.round((+msg.x || 0) / mb) * mb || mb)); if (+msg.x >= s.stack) s.bj.want = s.stack; this.dirty = true; }
+      else if (a === 'betok') { if (msg.x !== undefined) s.bj.want = Math.max(mb, Math.min(s.stack, Math.floor(+msg.x) || mb)); s.bj.ok = true; s.bj.sit = false; this.dirty = true; }
+      else if (a === 'sit') { s.bj.ok = true; s.bj.sit = true; this.log(`${s.name} 이번 판 쉬기`); this.dirty = true; }
+      this.tick(Date.now()); return;
+    }
+    if (r.st === 'play' && r.tu === i && msg.sq === r.sq) {
+      if (!this.act(i, a)) { tell(pid, 'err', '지금은 그 행동을 할 수 없어요'); return; }
+      this.tick(Date.now());
+    }
+  }
+  deal() {
+    const r = this.r, now = Date.now();
+    const players = this.seats.filter(s => s.bj.inR && !s.bj.sit && s.online && s.stack >= this.settings.minBet);
+    this.seats.forEach(s => { if (s.bj.inR && !players.includes(s)) s.bj.inR = false; });
+    if (!players.length) { r.st = 'show'; r.line = '모두 이번 판을 쉬었어요'; this.nextAt = now + 2500; r.sq++; this.dirty = true; return; }
+    players.forEach(s => { const b = Math.max(this.settings.minBet, Math.min(s.stack, s.bj.want)); s.stack -= b; s.bj.hands = [{ cards: [], bet: b, done: false, dbl: false, split: false, res: '', pay: 0 }]; s.inHand = true; });
+    const ls = this.luckySeat();
+    const lp = ls && players.includes(ls);
+    // 1장씩 두 바퀴: 플레이어들 → 딜러
+    for (let round = 0; round < 2; round++) {
+      for (const s of players) {
+        const h = s.bj.hands[0];
+        let prefs = null;
+        if (lp && s === ls) {
+          prefs = round === 0 ? [c => cardVal(c) >= 10] : [c => { const t = bjTotal([...h.cards, c]).t; return t >= 20; }, c => { const t = bjTotal([...h.cards, c]).t; return t >= 18; }];
+        }
+        h.cards.push(this.draw(prefs));
+      }
+      let dprefs = null;
+      if (lp) dprefs = round === 0 ? [c => { const v = cardVal(c); return v >= 4 && v <= 6; }, c => cardVal(c) < 10] : [c => { const t = bjTotal([...r.dl, c]).t; return t >= 12 && t <= 16; }];
+      r.dl.push(this.draw(dprefs));
+    }
+    r.hide = true;
+    players.forEach(s => { const h = s.bj.hands[0]; if (isBJ(h.cards)) { h.done = true; } });
+    const upV = cardVal(r.dl[0]);
+    if ((upV === 10 || upV === 11) && isBJ(r.dl)) {
+      r.dealerBJ = true; r.st = 'dealer'; r.hide = false; r.tu = -1; r.sq++;
+      this.dealerAt = now + 1200; this.dirty = true; return;
+    }
+    r.st = 'play'; r.tu = -1; r.hi = 0;
+    this.advance();
+  }
+  advance() {
+    const r = this.r, n = this.seats.length;
+    const start = r.tu < 0 ? 0 : r.tu;
+    for (let i = start; i < n; i++) {
+      const s = this.seats[i]; if (!s.bj.inR || !s.bj.hands.length) continue;
+      const hs = s.bj.hands;
+      for (let k = i === r.tu ? r.hi : 0; k < hs.length; k++) {
+        if (!hs[k].done) { r.tu = i; r.hi = k; r.sq++; this.turnStart = Date.now(); this.dirty = true; return; }
+      }
+    }
+    r.tu = -1; r.hi = 0; r.st = 'dealer'; r.hide = false; r.sq++;
+    this.dealerAt = Date.now() + 900; this.dirty = true;
+  }
+  canSplit(s, h) { return s.bj.hands.length === 1 && h.cards.length === 2 && cardVal(h.cards[0]) === cardVal(h.cards[1]) && s.stack >= h.bet; }
+  luckyPrefsFor(s, h) {
+    if (!this.r.lucky || s.id !== this.r.lucky) return null;
+    return [c => { const t = bjTotal([...h.cards, c]).t; return t >= 19 && t <= 21; }, c => bjTotal([...h.cards, c]).t <= 21];
+  }
+  act(i, a) {
+    const r = this.r, s = this.seats[i]; if (!s || r.st !== 'play' || r.tu !== i) return false;
+    const h = s.bj.hands[r.hi]; if (!h || h.done) return false;
+    if (a === 'hit') {
+      h.cards.push(this.draw(this.luckyPrefsFor(s, h)));
+      const t = bjTotal(h.cards).t;
+      if (t >= 21) h.done = true;
+    } else if (a === 'stand') {
+      h.done = true;
+    } else if (a === 'double') {
+      if (h.cards.length !== 2 || s.stack < h.bet) return false;
+      s.stack -= h.bet; h.bet *= 2; h.dbl = true;
+      h.cards.push(this.draw(this.luckyPrefsFor(s, h))); h.done = true;
+    } else if (a === 'split') {
+      if (!this.canSplit(s, h)) return false;
+      s.stack -= h.bet;
+      const aces = h.cards[0][0] === 'A';
+      const h2 = { cards: [h.cards.pop()], bet: h.bet, done: false, dbl: false, split: true, res: '', pay: 0 };
+      h.split = true;
+      h.cards.push(this.draw(this.luckyPrefsFor(s, h)));
+      h2.cards.push(this.draw(this.luckyPrefsFor(s, h2)));
+      s.bj.hands.push(h2);
+      if (aces) { h.done = true; h2.done = true; }
+      for (const x of s.bj.hands) if (bjTotal(x.cards).t >= 21) x.done = true;
+    } else return false;
+    this.advance();
+    return true;
+  }
+  dealerStep() {
+    const r = this.r;
+    const liveHands = this.seats.some(s => s.bj.inR && s.bj.hands.some(h => bjTotal(h.cards).t <= 21 && !isBJ(h.cards, h.split)));
+    const dt = bjTotal(r.dl);
+    if (r.dealerBJ || !liveHands || dt.t >= 17) { this.settle(); return; }
+    let prefs = null;
+    if (r.lucky) {
+      const lb = this.luckyBest();
+      // 다른 사람들의 최고 점수 (버스트 안 한 손)
+      let ob = 0; const ls = this.luckySeat();
+      for (const o of this.seats) if (o !== ls && o.bj.inR) for (const h of o.bj.hands) { const t = bjTotal(h.cards).t; if (t <= 21 && t > ob) ob = t; }
+      const fin = c => bjTotal([...r.dl, c]).t;
+      if (lb) prefs = [c => { const t = fin(c); return t >= 17 && t < lb && t >= ob; }, c => { const t = fin(c); return t < 17; }, c => { const t = fin(c); return t >= 17 && t < lb; }, c => fin(c) > 21];
+    }
+    r.dl.push(this.draw(prefs));
+    this.dirty = true;
+    this.dealerAt = Date.now() + 850;
+  }
+  settle() {
+    const r = this.r, now = Date.now();
+    const d = bjTotal(r.dl), dBJ = isBJ(r.dl), dBust = d.t > 21;
+    const parts = [];
+    for (const s of this.seats) {
+      if (!s.bj.inR || !s.bj.hands.length) continue;
+      let net = 0;
+      for (const h of s.bj.hands) {
+        const t = bjTotal(h.cards).t, pBJ = isBJ(h.cards, h.split);
+        let back = 0;
+        if (t > 21) { h.res = 'bust'; back = 0; }
+        else if (pBJ && dBJ) { h.res = 'push'; back = h.bet; }
+        else if (pBJ) { h.res = 'bj'; back = h.bet + Math.floor(h.bet * 1.5); }
+        else if (dBJ) { h.res = 'lose'; back = 0; }
+        else if (dBust || t > d.t) { h.res = 'win'; back = h.bet * 2; }
+        else if (t === d.t) { h.res = 'push'; back = h.bet; }
+        else { h.res = 'lose'; back = 0; }
+        h.pay = back - h.bet; s.stack += back; net += h.pay;
+      }
+      s.bj.net = net; s.won = net;
+      parts.push(`${s.name} ${net > 0 ? '+' : ''}${fmt(net)}`);
+    }
+    r.line = dBJ ? '딜러 블랙잭!' : dBust ? `딜러 버스트! (${d.t})` : `딜러 ${d.t}`;
+    this.log(`#${r.no} ${r.line} · ${parts.join(', ')}`);
+    r.st = 'show'; r.tu = -1; r.sq++;
+    this.seats.forEach(s => { s.out = s.stack < this.settings.minBet; });
+    this.nextAt = now + 6500;
+    this.bjBotReactions(dBust);
+    this.dirty = true;
+  }
+  bjBotReactions(dBust) {
+    const pick = arr => arr[randInt(arr.length)];
+    const mb = this.settings.minBet;
+    this.seats.filter(s => s.bot && s.bj.inR && s.bj.hands.length).forEach((b, k) => {
+      let e = null;
+      if (b.bj.hands.some(h => h.res === 'bj')) { if (rnd() < 0.6) e = pick(['😎', '🔥', '💸']); }
+      else if (b.bj.net >= mb * 3) { if (rnd() < 0.45) e = pick(['😎', '💸', '😂']); }
+      else if (b.bj.hands.some(h => h.res === 'bust')) { if (rnd() < 0.35) e = pick(['😭', '🤬', '😱']); }
+      else if (dBust && b.bj.net > 0) { if (rnd() < 0.3) e = pick(['👏', '😂']); }
+      if (e && EMOJIS.includes(e)) setTimeout(() => this.emitReact(b, e), 700 + k * 450 + randInt(500));
+    });
+  }
+
+  /* ---- 방장 ---- */
+  hostCmd(cmd, arg) {
+    if (cmd === 'set' && this.status === 'lobby' && arg && typeof arg === 'object') {
+      const ok = { stack: [500, 1000, 2000, 5000, 10000], minBet: [10, 20, 50, 100, 200], timer: [20, 30, 60, 0] };
+      for (const k of Object.keys(ok)) if (arg[k] !== undefined && ok[k].includes(+arg[k])) this.settings[k] = +arg[k];
+      this.seats.forEach(s => { s.stack = this.settings.stack; });
+      this.dirty = true;
+    } else if (cmd === 'addbot') {
+      return this.addBot(String(arg && arg.lv || 'normal'));
+    } else if (cmd === 'kickbot') {
+      const b = this.seats.find(s => s.bot && s.id === String(arg && arg.id));
+      if (!b) return '';
+      if (this.status === 'playing' && this.live() && b.bj.inR) return '이번 판이 끝난 뒤에 뺄 수 있어요';
+      const i = this.seats.indexOf(b);
+      if (this.r.tu > i) this.r.tu--;
+      this.seats.splice(i, 1);
+      this.log(`${b.name} 퇴장`); this.dirty = true;
+    } else if (cmd === 'start' && this.status === 'lobby') {
+      if (!this.seats.some(s => s.online && !s.bot)) return '접속한 사람이 있어야 시작할 수 있어요';
+      this.seats.forEach(s => { s.stack = this.settings.stack; s.out = false; s.bj.want = 0; });
+      this.status = 'playing'; this.r = this.blankRound(this.r.sq + 1);
+      this.log(`블랙잭 시작 · 시작 칩 ${fmt(this.settings.stack)}, 최소 베팅 ${fmt(this.settings.minBet)}`);
+      this.startRound();
+    } else if (cmd === 'next' && this.status === 'playing' && (this.r.st === 'show' || this.r.st === 'idle')) {
+      this.nextAt = 0; this.startRound();
+    } else if (cmd === 'rebuy') {
+      let k = 0; this.seats.forEach(s => { if (s.stack < this.settings.minBet && !(this.live() && s.bj.inR)) { s.stack = this.settings.stack; s.out = false; k++; } });
+      if (k) { this.log(`칩이 떨어진 ${k}명 리바이 (${fmt(this.settings.stack)})`); this.dirty = true; }
+    } else if (cmd === 'lobby') {
+      this.status = 'lobby'; this.nextAt = 0; this.dealerAt = 0;
+      this.r = this.blankRound(this.r.sq + 1); this.msg = '';
+      this.seats = this.seats.filter(s => s.online);
+      this.seats.forEach(s => { this.resetBJ(s); s.stack = this.settings.stack; s.out = false; s.inHand = false; });
+      this.log('대기실로 돌아왔어요'); this.dirty = true;
+    }
+    return '';
+  }
+
+  /* ---- 주기 처리 ---- */
+  tick(now) {
+    const host = this.seatOf(this.hostPid);
+    if (!host || (!host.online && now - host.offSince > 30000)) {
+      const next = this.seats.find(s => s.online && !s.bot && s.pid !== this.hostPid);
+      if (next) { this.hostPid = next.pid; this.log(`${next.name}님이 새 방장이 됐어요`); this.dirty = true; }
+    }
+    const r = this.r;
+    if (this.status !== 'playing' || r.st === 'show' || r.st === 'idle') {
+      const before = this.seats.length;
+      this.seats = this.seats.filter(s => { if (s.online || now - s.offSince < 60000) return true; this.log(`${s.name} 퇴장`); return false; });
+      if (before !== this.seats.length) this.dirty = true;
+    }
+    if (this.status === 'playing') {
+      if ((r.st === 'show' || r.st === 'idle') && this.nextAt && now >= this.nextAt) { this.nextAt = 0; this.startRound(); }
+      else if (r.st === 'bet') {
+        for (const s of this.seats) if (s.bot && s.bj.inR && !s.bj.ok && now >= (s.bj.botAt || 0)) { s.bj.want = bjBotBet(this, s); s.bj.ok = true; this.dirty = true; }
+        const waiting = this.seats.filter(s => s.bj.inR && !s.bj.ok && s.online);
+        if (!waiting.length || (this.betEnd && now >= this.betEnd)) this.deal();
+      } else if (r.st === 'play' && r.tu >= 0) {
+        const s = this.seats[r.tu], h = s && s.bj.hands[r.hi];
+        if (!s || !h) { this.advance(); }
+        else if (s.bot) {
+          if (this.botFor !== r.sq) { this.botFor = r.sq; this.botAt = now + 650 + randInt(1100); }
+          else if (now >= this.botAt) { let m; try { m = bjBotMove(this, s, h); } catch (e) { m = 'stand'; } if (!this.act(r.tu, m)) this.act(r.tu, 'stand'); }
+        } else if (now - this.turnStart > this.turnLimit(s)) { this.log(`${s.name} 시간 초과 · 스탠드`); this.act(r.tu, 'stand'); }
+      } else if (r.st === 'dealer' && now >= this.dealerAt) this.dealerStep();
+    }
+    if (this.dirty) { this.dirty = false; this.broadcast(); }
+  }
+
+  publicState() {
+    const r = this.r, now = Date.now();
+    const turnSeat = r.st === 'play' && r.tu >= 0 ? this.seats[r.tu] : null;
+    const lim = turnSeat ? this.turnLimit(turnSeat) : Infinity;
+    const dl = r.hide && r.dl.length === 2 ? [r.dl[0], 'back'] : r.dl;
+    const dv = r.hide ? (r.dl.length ? bjTotal([r.dl[0]]) : { t: 0, soft: false }) : bjTotal(r.dl);
+    return {
+      game: 'bj', code: this.code, status: this.status, set: this.settings, msg: this.msg,
+      seats: this.seats.map(s => ({
+        id: s.id, n: s.name, s: s.stack, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '',
+        ir: s.bj.inR ? 1 : 0, want: s.bj.want, ok: s.bj.ok ? 1 : 0, sit: s.bj.sit ? 1 : 0, w: s.bj.net,
+        hs: s.bj.hands.map(h => { const t = bjTotal(h.cards); return { c: h.cards, b: h.bet, t: t.t, soft: t.soft && t.t < 21 ? 1 : 0, bj: isBJ(h.cards, h.split) ? 1 : 0, done: h.done ? 1 : 0, dbl: h.dbl ? 1 : 0, res: h.res, pay: h.pay }; })
+      })),
+      h: {
+        no: r.no, sq: r.sq, st: r.st, tu: r.tu, hi: r.hi, dl, dt: dv.t, ds: dv.soft && dv.t < 21 ? 1 : 0, line: r.line,
+        tl: turnSeat && !turnSeat.bot && isFinite(lim) ? Math.max(0, lim - (now - this.turnStart)) : -1,
+        tt: isFinite(lim) ? lim : 0,
+        bl: r.st === 'bet' && this.betEnd ? Math.max(0, this.betEnd - now) : -1,
+        nx: this.nextAt ? Math.max(0, this.nextAt - now) : -1
+      }
+    };
+  }
+  sendTo(c, pub) {
+    const me = this.seats.findIndex(s => s.pid === c.pid), seat = this.seats[me];
+    c.emit('state', { ...pub, me, isHost: c.pid === this.hostPid, lk: seat && seat.lucky ? 1 : 0 });
+  }
 }
 
 /* ---------------- 접속(SSE 스트림) ---------------- */
@@ -616,7 +998,7 @@ function handle(msg) {
   if (type === 'create') {
     const name = clean(msg.name, 10) || '방장';
     let code; do { code = Array.from({ length: 5 }, () => CODE_ABC[randInt(CODE_ABC.length)]).join(''); } while (rooms.has(code));
-    const room = new Room(code); rooms.set(code, room);
+    const room = msg.game === 'bj' ? new BJRoom(code) : new Room(code); rooms.set(code, room);
     room.hostPid = pid;
     room.log(`방이 만들어졌어요. 코드 ${code}`);
     for (const c of cs) enter(c, room, name);
@@ -628,6 +1010,7 @@ function handle(msg) {
     for (const c of cs) enter(c, room, name);
   } else if (type === 'act') {
     const room = roomOf(pid); if (!room || room.status !== 'playing') return;
+    if (room.game === 'bj') { room.bjMsg(pid, msg); return; }
     const i = room.seats.findIndex(s => s.pid === pid);
     if (i < 0 || room.hand.tu !== i || msg.sq !== room.hand.sq) return;
     if (!room.act(i, String(msg.a), msg.x)) tell(pid, 'err', '지금은 그 액션을 할 수 없어요');
@@ -678,6 +1061,10 @@ function handle(msg) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (url.pathname === '/healthz') { res.writeHead(200); res.end('ok'); return; }
+  const origin = `https://${String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^\w.\-:]/g, '')}`;
+  if (url.pathname === '/robots.txt') { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); res.end(`User-agent: *\nAllow: /\nDisallow: /api\nDisallow: /events\nSitemap: ${origin}/sitemap.xml\n`); return; }
+  if (url.pathname === '/sitemap.xml') { res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' }); res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${origin}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url></urlset>\n`); return; }
+  if (url.pathname === '/favicon.ico') { res.writeHead(204); res.end(); return; }
   if (url.pathname === '/events' && req.method === 'GET') {
     const pid = clean(url.searchParams.get('pid'), 40);
     if (pid.length < 12) { res.writeHead(400); res.end(); return; }
@@ -723,6 +1110,6 @@ setInterval(() => {
 }, 250);
 
 server.keepAliveTimeout = 65000;
-if (require.main === module) server.listen(PORT, () => console.log(`우리끼리 홀덤 서버 실행 중: http://localhost:${PORT}`));
+if (require.main === module) server.listen(PORT, () => console.log(`수완고 종합게임 서버 실행 중: http://localhost:${PORT}`));
 
-module.exports = { Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };
+module.exports = { BJRoom, bjTotal, basicStrategy, Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };
