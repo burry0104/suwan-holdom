@@ -1,4 +1,4 @@
-// 수완고 종합게임 — 실시간 서버 (홀덤 · 블랙잭)
+// 수완 종합게임 — 실시간 서버 (홀덤 · 블랙잭)
 // 실행: npm start  (외부 패키지 없음. PORT 환경변수가 있으면 그 포트 사용)
 // 서버 → 화면: Server-Sent Events(/events), 화면 → 서버: POST /api
 'use strict';
@@ -1110,6 +1110,6 @@ setInterval(() => {
 }, 250);
 
 server.keepAliveTimeout = 65000;
-if (require.main === module) server.listen(PORT, () => console.log(`수완고 종합게임 서버 실행 중: http://localhost:${PORT}`));
+if (require.main === module) server.listen(PORT, () => console.log(`수완 종합게임 서버 실행 중: http://localhost:${PORT}`));
 
 module.exports = { BJRoom, bjTotal, basicStrategy, Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };

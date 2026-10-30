@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1412">
-<title>수완고 종합게임 - 친구들과 하는 홀덤 · 블랙잭</title>
-<meta name="description" content="수완고 종합게임. 방을 만들고 코드나 링크로 친구를 초대해서 바로 즐기는 무료 텍사스 홀덤과 블랙잭. 가입 없이, 실시간 채팅과 이모티콘, AI 플레이어까지. 실제 돈 없이 칩으로만 즐겨요.">
-<meta name="keywords" content="수완고 종합게임, 수완고, 홀덤, 블랙잭, 텍사스 홀덤, 무료 포커, 친구 게임">
+<title>수완 종합게임 - 친구들과 하는 홀덤 · 블랙잭</title>
+<meta name="description" content="수완 종합게임. 방을 만들고 코드나 링크로 친구를 초대해서 바로 즐기는 무료 텍사스 홀덤과 블랙잭. 가입 없이, 실시간 채팅과 이모티콘, AI 플레이어까지. 실제 돈 없이 칩으로만 즐겨요.">
+<meta name="keywords" content="수완 종합게임, 수완, 홀덤, 블랙잭, 텍사스 홀덤, 무료 포커, 친구 게임">
 <meta property="og:type" content="website">
-<meta property="og:title" content="수완고 종합게임">
+<meta property="og:title" content="수완 종합게임">
 <meta property="og:description" content="링크 하나로 친구들과 바로 하는 홀덤 · 블랙잭. 가입 없음, 실제 돈 없음.">
 <meta property="og:locale" content="ko_KR">
 <meta name="robots" content="index,follow">
@@ -258,6 +258,19 @@ button{cursor:pointer;touch-action:manipulation}
 .myhand .hands2 .one.act{box-shadow:0 0 0 2px var(--brass);background:var(--brass-soft)}
 .myhand .hands2 .one .cs{display:flex}
 .myhand .hands2 .one .cs .card{margin-left:calc(var(--w)*-.42)}.myhand .hands2 .one .cs .card:first-child{margin-left:0}
+.gate{position:fixed;inset:0;z-index:100;display:flex;padding:16px;padding-top:max(16px,env(safe-area-inset-top,0px));padding-bottom:max(16px,env(safe-area-inset-bottom,0px));background:radial-gradient(120% 80% at 50% 0%,#14251f 0%,var(--room) 65%);overflow-y:auto}
+.gatebox{margin:auto;width:min(100%,520px);background:var(--panel);border:1px solid rgba(220,170,76,.35);border-radius:20px;padding:22px 20px 18px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 60px rgba(0,0,0,.55);animation:rise .35s ease-out both}
+.gatebox h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;color:var(--ivory);text-align:center}
+.gatebox h2 b{color:var(--brass);font-weight:400}
+.gatebox .lead{margin:0;font-size:14px;color:var(--text);text-align:center;line-height:1.6}
+.gatebox ol{margin:0;padding:12px 14px 12px 32px;background:var(--room-2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.55}
+.gatebox ol li::marker{color:var(--brass);font-family:var(--f-num);font-weight:700}
+.gatebox h3{margin:2px 0 0;font-size:13px;color:var(--brass);letter-spacing:.04em;font-weight:600}
+.gatebox ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted);line-height:1.55}
+.gatebox .q{margin:2px 0 0;font-size:15px;font-weight:600;color:var(--ivory);text-align:center;text-wrap:balance}
+.gatebox .btns{display:grid;grid-template-columns:1fr 1.4fr;gap:10px}
+.gatebox .btns .btn{padding:13px 10px;font-size:16px}
+.gatebox .no{margin:0;font-size:13px;color:var(--danger);text-align:center}
 #fx{position:fixed;inset:0;pointer-events:none;z-index:40;overflow:hidden}
 .bigemo{position:absolute;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);animation:boom 2.1s cubic-bezier(.2,.8,.3,1) forwards}
 .bigemo .e{font-size:min(38vw,190px);line-height:1;filter:drop-shadow(0 12px 28px rgba(0,0,0,.55))}
@@ -337,6 +350,7 @@ button{cursor:pointer;touch-action:manipulation}
   .myturn{font-size:14px}
 }
 @media (max-width:440px){#app:has(#room:not([hidden])) .brand{font-size:0}#app:has(#room:not([hidden])) .brand b{font-size:18px}.secbtn{padding:6px 3px}}
+@media (max-width:440px){.gatebox{padding:18px 16px 16px;gap:11px}.gatebox h2{font-size:23px}.gatebox ol{font-size:13px;gap:4px}.gatebox ul{font-size:12px}}
 @media (max-width:360px){.brand{font-size:0}.brand b{font-size:17px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -344,7 +358,7 @@ button{cursor:pointer;touch-action:manipulation}
 <body>
 <div id="app">
   <header class="top">
-    <div class="brand">수완고 <b>종합게임</b></div>
+    <div class="brand">수완 <b>종합게임</b></div>
     <span id="codeChip" class="chip-code" hidden role="button" tabindex="0" title="초대 링크 복사"><span class="dot" id="connDot"></span><span id="codeTxt"></span></span>
     <div class="spacer"></div>
     <button class="secbtn" id="secBtn" type="button" aria-label="설정" hidden>⚙︎</button>
@@ -357,7 +371,7 @@ button{cursor:pointer;touch-action:manipulation}
     <div class="home-inner">
       <div class="hero">
         <div class="fan" id="fan"></div>
-        <h1>수완고 종합게임</h1>
+        <h1>수완 종합게임</h1>
         <p>게임을 고르고 방을 만든 뒤 링크나 코드를 보내면 친구들이 바로 들어와요. 자리가 비면 AI를 앉혀서 같이 할 수 있어요. 최대 8명.</p>
       </div>
       <div id="resumeBox" hidden></div>
@@ -378,7 +392,7 @@ button{cursor:pointer;touch-action:manipulation}
           <input class="input code" id="codeIn" maxlength="5" placeholder="ABCDE" autocapitalize="characters">
           <button class="btn ivory" type="submit" id="joinBtn">입장</button>
         </div>
-        <div class="note"><b>친구 부르는 법</b> · 방을 만든 뒤 <b>초대 링크 복사</b>를 눌러 카톡으로 보내면, 친구는 링크를 열고 닉네임만 적으면 바로 같은 방에 들어와요. 혼자라면 방 안에서 <b>AI 추가</b>를 눌러 AI랑 칠 수 있어요.<br><span style="opacity:.6">버전 10/30-A · 홀덤 · 블랙잭</span></div>
+        <div class="note"><b>친구 부르는 법</b> · 방을 만든 뒤 <b>초대 링크 복사</b>를 눌러 카톡으로 보내면, 친구는 링크를 열고 닉네임만 적으면 바로 같은 방에 들어와요. 혼자라면 방 안에서 <b>AI 추가</b>를 눌러 AI랑 칠 수 있어요.<br><span style="opacity:.6">버전 10/30-B · 홀덤 · 블랙잭</span></div>
       </form>
     </div>
   </main>
@@ -419,6 +433,28 @@ button{cursor:pointer;touch-action:manipulation}
   </main>
   <div id="scrim" class="scrim" hidden></div>
   <div id="fx" aria-hidden="true"></div>
+  <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+    <div class="gatebox">
+      <h2 id="gateTitle">수완 <b>종합게임</b></h2>
+      <p class="lead">본 활동은 친구들과의 <b>친목과 재미</b>를 목적으로 하는 게임입니다.</p>
+      <ol>
+        <li>현금, 계좌이체, 상품권 등 어떠한 금전적 가치도 걸지 않습니다.</li>
+        <li>승패에 따른 금전 거래나 물품 교환을 하지 않습니다.</li>
+        <li>게임 내 점수(칩)는 단순한 기록용이며, 실제 보상이나 대가로 교환할 수 없습니다.</li>
+        <li>친구와 게임할 때는 오직 장난과 재미로만 즐깁니다.</li>
+      </ol>
+      <h3>책임 및 유의사항</h3>
+      <ul>
+        <li>게임 참여는 각자의 자발적인 선택입니다.</li>
+        <li>참여자는 학교 규정을 반드시 지켜야 합니다. 수업 시간 등 규정상 허용되지 않는 때와 장소에서는 이용하지 마세요.</li>
+        <li>게임 참여로 학교 규정 위반이나 교사의 지도 등이 생기면, 그 결과는 참여자 본인이 이해하고 감수해야 합니다.</li>
+        <li>개발자와 운영자는 참여자 개인의 학교 내 조치에 관여하지 않습니다.</li>
+      </ul>
+      <p class="q">위 내용을 충분히 이해했으며, 이를 준수하는 데 동의합니까?</p>
+      <p class="no" id="gateNo" hidden>동의해야 입장할 수 있어요.</p>
+      <div class="btns"><button class="btn ghost" type="button" id="gateNoBtn">아니요</button><button class="btn brass" type="button" id="gateYes">예, 동의합니다</button></div>
+    </div>
+  </div>
   <div class="secmodal" id="secModal" hidden>
     <form class="secbox" id="secForm" autocomplete="off">
       <h3>비밀번호</h3>
@@ -633,7 +669,7 @@ function renderTop(){
 }
 function updateTitle(){
   const v=S.view;const myTurn=v&&v.me>=0&&v.h.tu===v.me&&(v.game==='bj'?v.h.st==='play':BETTING.has(v.h.st));
-  document.title=(myTurn&&document.hidden)?'🔔 내 차례! · 수완고 종합게임':'수완고 종합게임';
+  document.title=(myTurn&&document.hidden)?'🔔 내 차례! · 수완 종합게임':'수완 종합게임';
 }
 function render(){renderTop();if(S.view&&S.view.game==='bj'){renderBJTable();renderBJDock()}else{renderTable();renderDock()}updateTitle()}
 
@@ -1241,6 +1277,16 @@ $('#chatClose').onclick=$('#scrim').onclick=()=>{S.chatOpen=false;syncChatSheet(
 $('#chatForm').onsubmit=e=>{e.preventDefault();const inp=$('#chatIn');const t=inp.value.trim();if(!t)return;net.send('chat',{t});inp.value=''};
 
 if(S.code){showScreen('room');render()}else{showScreen('home');renderHome()}
+/* ---------- 입장 동의 ---------- */
+(function(){
+  const gate=$('#gate');
+  let agreed=false;try{agreed=sessionStorage.getItem('sw-agree')==='v1'}catch(e){}
+  if(agreed){gate.hidden=true;return}
+  document.getElementById('app').setAttribute('aria-hidden','true');
+  gate.scrollTop=0;setTimeout(()=>{try{$('#gateYes').focus({preventScroll:true})}catch(e){}},50);
+  $('#gateYes').onclick=()=>{try{sessionStorage.setItem('sw-agree','v1')}catch(e){}gate.hidden=true;document.getElementById('app').removeAttribute('aria-hidden');SND.ensure()};
+  $('#gateNoBtn').onclick=()=>{$('#gateNo').hidden=false;$('#gateNo').textContent='동의하지 않으면 입장할 수 없어요. 내용을 다시 읽고 동의해 주세요.'};
+})();
 const hc0=(location.hash||'').replace('#','').toUpperCase();
 if(!S.code&&/^[A-Z0-9]{5}$/.test(hc0)){toast('닉네임을 적고 입장을 눌러 주세요');setTimeout(()=>$('#nameIn').focus(),300)}
 </script>
