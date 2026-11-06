@@ -72,6 +72,11 @@ function handName(s) {
     default: return `${RN(s[1])} 하이`;
   }
 }
+// 최종 5장을 족보 순서대로 (예: 10 10 A K Q)
+function fiveLabel(cards) {
+  const cnt = {}; cards.forEach(c => { cnt[c[0]] = (cnt[c[0]] || 0) + 1; });
+  return [...cards].sort((a, b) => (cnt[b[0]] - cnt[a[0]]) || (RANKS.indexOf(b[0]) - RANKS.indexOf(a[0]))).map(c => c[0] === 'T' ? '10' : c[0]).join(' ');
+}
 // 같은 족보 이름인데 승부가 갈렸으면, 갈린 카드를 설명
 function kickerNote(win, lose) {
   if (!lose || win[0] !== lose[0] || handName(win) !== handName(lose)) return '';
@@ -200,7 +205,7 @@ function botDecide(room, i) {
 /* ---------------- 행운 모드 (비밀) ---------------- */
 // Render 환경변수 LUCKY_PW 로 바꿀 수 있어요. 없으면 기본값 사용.
 const LUCKY_PW = process.env.LUCKY_PW || '0104';
-const LUCKY_RATE = 1; // 1 = 켜져 있으면 항상 이기는 패
+const LUCKY_RATE = 0.92; // 92%는 이기는 판, 나머지 8%는 지는 판 (티 안 나게)
 const pwFails = new Map();
 
 /* ---------------- 방 ---------------- */
@@ -224,6 +229,92 @@ class Room {
     this.emptySince = Date.now();
     this.dirty = false;
     this.botFor = -1; this.botAt = 0;
+    this.banned = new Set();
+    this.stats = null;
+  }
+  /* ---- 순위 기록 (게임 시작부터) ---- */
+  statInit() { this.stats = new Map(); for (const s of this.seats) this.statAdd(s); }
+  statAdd(s) { if (!this.stats || this.stats.has(s.id)) return; this.stats.set(s.id, { n: s.name, bot: !!s.bot, buy: s.stack, g: 0, w: 0, b: 0, stack: s.stack }); }
+  statBuy(s, amt) { const st = this.stats && this.stats.get(s.id); if (st && amt > 0) st.buy += amt; }
+  statHand(s, profit) {
+    if (!this.stats) return;
+    if (!this.stats.has(s.id)) { this.statAdd(s); this.stats.get(s.id).buy = s.stack - profit; }
+    const st = this.stats.get(s.id);
+    st.g++; if (profit > 0) { st.w++; if (profit > st.b) st.b = profit; }
+    st.n = s.name; st.stack = s.stack;
+  }
+  ranking() {
+    if (!this.stats) return [];
+    const here = new Map(this.seats.map(s => [s.id, s]));
+    const arr = [];
+    for (const [id, st] of this.stats) {
+      const s = here.get(id);
+      if (s) { st.stack = s.stack; st.n = s.name; }
+      arr.push({ id, n: st.n, bot: st.bot ? 1 : 0, p: st.stack - st.buy, w: st.w, g: st.g, b: st.b, here: s && !s.kicked ? 1 : 0 });
+    }
+    arr.sort((a, b) => b.p - a.p || b.w - a.w || a.n.localeCompare(b.n));
+    return arr;
+  }
+  rankLog() {
+    const rk = this.ranking().filter(x => x.g > 0); if (!rk.length) return;
+    const m = ['🥇', '🥈', '🥉'];
+    this.log('🏆 최종 순위 · ' + rk.slice(0, 6).map((x, i) => `${m[i] || (i + 1) + '위'} ${x.n} ${x.p > 0 ? '+' : ''}${fmt(x.p)}`).join(' / '));
+  }
+  /* ---- 방장 칩 지급 ---- */
+  seatBusy(seat) { return this.status === 'playing' && !!seat.inHand && !this.safeToRemove(); }
+  giveChips(seat, amt) {
+    seat.pendGive = (seat.pendGive || 0) + amt;
+    if (this.seatBusy(seat)) this.log(`방장이 ${seat.name}에게 칩 ${fmt(amt)} 지급 · 이번 판이 끝나면 들어가요`);
+    else this.log(`방장이 ${seat.name}에게 칩 ${fmt(amt)} 지급`);
+    this.applyGives();
+    this.dirty = true;
+  }
+  applyGives() {
+    for (const s of this.seats) {
+      if (!s.pendGive || this.seatBusy(s)) continue;
+      s.stack += s.pendGive; this.statBuy(s, s.pendGive); s.pendGive = 0;
+      if (s.stack > 0 && this.game !== 'bj' && this.game !== 'bac') s.out = false;
+      if ((this.game === 'bj' || this.game === 'bac') && s.stack >= this.settings.minBet) s.out = false;
+      this.dirty = true;
+    }
+  }
+  /* ---- 추방 ---- */
+  kickSeat(seat) {
+    seat.kicked = true; seat.online = false; seat.offSince = Date.now();
+    this.log(`${seat.name}님이 추방됐어요`);
+    this.onKick(seat);
+    this.sweepKicked();
+    this.dirty = true;
+  }
+  onKick(seat) { // 홀덤: 진행 중인 핸드면 바로 폴드 처리
+    const hd = this.hand, i = this.seats.indexOf(seat);
+    if (this.status !== 'playing' || !seat.inHand || seat.folded || !BETTING.has(hd.st)) return;
+    if (hd.tu === i) { this.act(i, 'fold'); return; }
+    seat.folded = true; seat.la = '폴드';
+    const live = this.seats.filter(o => o.inHand && !o.folded);
+    if (live.length === 1) this.winByFold(live[0]);
+  }
+  safeToRemove() { return this.status !== 'playing' || this.hand.st === 'show' || this.hand.st === 'idle'; }
+  canDropOffline() { return this.status !== 'playing'; }
+  removeSeatAt(i) { const hd = this.hand; this.seats.splice(i, 1); if (hd.d >= i && hd.d > 0) hd.d--; }
+  sweepKicked() {
+    if (!this.safeToRemove()) return;
+    for (let i = this.seats.length - 1; i >= 0; i--) if (this.seats[i].kicked) { this.removeSeatAt(i); this.dirty = true; }
+  }
+  commonTick(now) {
+    const host = this.seatOf(this.hostPid);
+    if (!host || host.kicked || (!host.online && now - host.offSince > 30000)) {
+      const next = this.seats.find(s => s.online && !s.bot && !s.kicked && s.pid !== this.hostPid);
+      if (next) { this.hostPid = next.pid; this.log(`${next.name}님이 새 방장이 됐어요`); this.dirty = true; }
+    }
+    this.sweepKicked();
+    this.applyGives();
+    if (this.canDropOffline() && this.safeToRemove()) {
+      for (let i = this.seats.length - 1; i >= 0; i--) {
+        const s = this.seats[i];
+        if (!s.online && !s.bot && now - s.offSince >= 60000) { this.log(`${s.name} 퇴장`); this.removeSeatAt(i); this.dirty = true; }
+      }
+    }
   }
   blankHand(sq) { return { no: 0, d: -1, sq, tu: -1, st: 'idle', bd: [], pot: 0, cb: 0, mr: 0, holes: {}, deck: [], res: null, sbI: -1, bbI: -1 }; }
   newSeat(pid, name) {
@@ -240,6 +331,7 @@ class Room {
     const seat = this.newSeat('bot:' + crypto.randomBytes(6).toString('hex'), name);
     seat.bot = true; seat.lv = lv;
     this.seats.push(seat);
+    if (this.status === 'playing') this.statAdd(seat);
     this.log(`${name}(${BOT_LEVELS[lv].label}) 참가${this.status === 'playing' ? ' · 다음 핸드부터' : ''}`);
     this.dirty = true;
     return '';
@@ -275,7 +367,7 @@ class Room {
       hd.sq++; this.nextAt = Date.now() + 3000; this.dirty = true; return;
     }
     this.msg = '';
-    elig.forEach(i => this.seats[i].inHand = true);
+    elig.forEach(i => { this.seats[i].inHand = true; this.seats[i].st0 = this.seats[i].stack; });
     hd.no++;
     hd.d = this.nextIn(hd.d ?? -1);
     let sbI, bbI;
@@ -309,6 +401,15 @@ class Room {
         picked = { deck, holes };
       }
       hd.deck = picked.deck; hd.holes = picked.holes;
+    } else if (lucky) {
+      // 나머지 8%: 끝까지 가면 다른 누군가가 이기는 판
+      const ints = cs => cs.map(c => CARD_INT[c]);
+      const boardOf = deck => { const d = deck.slice(); d.pop(); const bd = [d.pop(), d.pop(), d.pop()]; d.pop(); bd.push(d.pop()); d.pop(); bd.push(d.pop()); return bd; };
+      for (let t = 0; t < 400; t++) {
+        const deck = newDeck(), holes = dealHoles(deck), bd = boardOf(deck);
+        const mine = eval7i(ints([...holes[lucky.pid], ...bd]));
+        if (Object.keys(holes).some(pid => pid !== lucky.pid && eval7i(ints([...holes[pid], ...bd])) > mine)) { hd.deck = deck; hd.holes = holes; break; }
+      }
     }
     this.status = 'playing';
     const first = elig.length === 2 ? sbI : this.nextIn(bbI);
@@ -407,7 +508,7 @@ class Room {
         win: w.map(o => o.id), names: w.map(o => o.name), shares,
         split: w.length > 1,
         hn: handName(best),
-        note: w.length > 1 ? '' : kickerNote(best, runner),
+        note: w.length > 1 ? `최종 5장이 똑같아서 무승부 (${fiveLabel(w[0].best || [])})` : kickerNote(best, runner),
         solo: p.el.length === 1
       });
       sideNo++;
@@ -428,7 +529,7 @@ class Room {
   resultLine(r) {
     return r.pots.filter(p => !p.solo || r.pots.length === 1).map(p => {
       const head = r.pots.length > 1 ? `${p.name} ` : '';
-      if (p.split) return `${head}무승부 · ${p.names.join(', ')} ${p.hn}로 ${fmt(p.amt)} 나눔`;
+      if (p.split) return `${head}무승부 · ${p.names.join(', ')} ${p.hn}로 ${fmt(p.amt)} 나눔${p.note ? ' · ' + p.note : ''}`;
       return `${head}${p.names[0]} +${fmt(p.amt)} · ${p.hn}${p.note ? ' (' + p.note + ')' : ''}`;
     }).join(' / ');
   }
@@ -442,9 +543,10 @@ class Room {
   }
   endHand() {
     this.botReactions();
+    this.seats.forEach(o => { if (o.inHand) this.statHand(o, o.stack - (o.st0 ?? o.stack)); });
     this.seats.forEach(o => { if (o.stack <= 0) o.out = true; });
     const alive = this.seats.filter(o => o.stack > 0);
-    if (alive.length < 2) { this.status = 'over'; this.champ = alive[0] ? alive[0].name : ''; this.log(`게임 종료 · ${this.champ} 우승`); this.nextAt = 0; }
+    if (alive.length < 2) { this.status = 'over'; this.champ = alive[0] ? alive[0].name : ''; this.log(`게임 종료 · ${this.champ} 우승`); this.rankLog(); this.nextAt = 0; }
     else this.nextAt = Date.now() + (this.hand.res && this.hand.res.kind === 'show' ? 9000 : 6500);
     this.dirty = true;
   }
@@ -502,17 +604,19 @@ class Room {
       if (this.seats.filter(s => s.online).length < 2) return '2명 이상 있어야 시작할 수 있어요. 혼자라면 AI를 추가해 보세요';
       this.seats.forEach(s => Object.assign(s, { stack: this.settings.stack, out: false }));
       this.hand = this.blankHand(this.hand.sq + 1); this.champ = '';
+      this.statInit();
       this.log(`게임 시작 · 시작 칩 ${fmt(this.settings.stack)}, 블라인드 ${this.settings.sb}/${this.settings.bb}`);
       this.startHand();
     } else if (cmd === 'next' && this.status === 'playing' && (this.hand.st === 'show' || this.hand.st === 'idle')) {
       this.nextAt = 0; this.startHand();
     } else if (cmd === 'rebuy') {
-      let k = 0; this.seats.forEach(s => { if (s.out && !s.inHand) { s.stack = this.settings.stack; s.out = false; k++; } });
+      let k = 0; this.seats.forEach(s => { if (s.out && !s.inHand) { this.statBuy(s, this.settings.stack - s.stack); s.stack = this.settings.stack; s.out = false; k++; } });
       if (k) { this.log(`탈락자 ${k}명 리바이 (${fmt(this.settings.stack)})`); this.dirty = true; }
     } else if (cmd === 'lobby') {
+      if (this.status !== 'over') this.rankLog();
       this.status = 'lobby'; this.nextAt = 0; this.runoutAt = 0;
       this.hand = this.blankHand(this.hand.sq + 1); this.champ = ''; this.msg = '';
-      this.seats = this.seats.filter(s => s.online);
+      this.seats = this.seats.filter(s => s.online && !s.kicked);
       this.seats.forEach(s => { this.resetSeatHand(s); s.stack = this.settings.stack; s.out = false; });
       this.log('대기실로 돌아왔어요'); this.dirty = true;
     }
@@ -521,16 +625,7 @@ class Room {
 
   /* ---- 주기 처리 ---- */
   tick(now) {
-    const host = this.seatOf(this.hostPid);
-    if (!host || (!host.online && now - host.offSince > 30000)) {
-      const next = this.seats.find(s => s.online && !s.bot && s.pid !== this.hostPid);
-      if (next) { this.hostPid = next.pid; this.log(`${next.name}님이 새 방장이 됐어요`); this.dirty = true; }
-    }
-    if (this.status !== 'playing') {
-      const before = this.seats.length;
-      this.seats = this.seats.filter(s => { if (s.online || now - s.offSince < 60000) return true; this.log(`${s.name} 퇴장`); return false; });
-      if (before !== this.seats.length) this.dirty = true;
-    }
+    this.commonTick(now);
     if (this.status === 'playing') {
       const hd = this.hand;
       if (this.runoutAt && now >= this.runoutAt) { this.runoutAt = 0; this.endStreet(); }
@@ -558,8 +653,8 @@ class Room {
     const turnSeat = hd.tu >= 0 ? this.seats[hd.tu] : null;
     const lim = turnSeat ? this.turnLimit(turnSeat) : Infinity;
     return {
-      game: 'holdem', code: this.code, status: this.status, set: this.settings, msg: this.msg, champ: this.champ,
-      seats: this.seats.map(s => ({ id: s.id, n: s.name, s: s.stack, b: s.bet, f: s.folded ? 1 : 0, a: s.allIn ? 1 : 0, ac: s.acted ? 1 : 0, ih: s.inHand ? 1 : 0, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, sh: s.shown || 0, bc: s.best || 0, la: s.la, w: s.won, hn: s.hn, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, pp: s.popped ? 1 : 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '' })),
+      game: 'holdem', code: this.code, status: this.status, set: this.settings, msg: this.msg, champ: this.champ, rk: this.ranking(),
+      seats: this.seats.map(s => ({ id: s.id, n: s.name, s: s.stack, b: s.bet, f: s.folded ? 1 : 0, a: s.allIn ? 1 : 0, ac: s.acted ? 1 : 0, ih: s.inHand ? 1 : 0, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, sh: s.shown || 0, bc: s.best || 0, la: s.la, w: s.won, hn: s.hn, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, pp: s.popped ? 1 : 0, pg: s.pendGive || 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '' })),
       h: {
         no: hd.no, d: hd.d, sb: hd.sbI, bb: hd.bbI, st: hd.st, bd: hd.bd, pot: hd.pot, cb: hd.cb, mr: hd.mr, tu: hd.tu, sq: hd.sq, res: hd.res,
         tl: turnSeat && !turnSeat.bot && BETTING.has(hd.st) && isFinite(lim) ? Math.max(0, lim - (now - this.turnStart)) : -1,
@@ -579,8 +674,12 @@ class Room {
 }
 
 /* ================= 블랙잭 ================= */
-// 규칙: 6덱 슈, 딜러는 소프트 17에서 스탠드, 블랙잭 3:2, 더블(첫 2장), 스플릿 1번(같은 숫자 값), 스플릿 후 더블 가능.
-// 딜러가 A나 10을 보이면 블랙잭인지 먼저 확인(피크)하고, 블랙잭이면 바로 정산.
+// 규칙 (일반적인 카지노 기준)
+// · 6덱 슈, 75% 정도 쓰면 새로 섞음 · 딜러는 소프트 17에서 스탠드(S17) · 블랙잭 3:2
+// · 딜러가 A를 보이면 인슈어런스(베팅의 절반, 2:1) / 블랙잭이면 이븐 머니(1:1 확정)
+// · 딜러가 A나 10을 보이면 블랙잭인지 먼저 확인(피크) → 딜러 블랙잭이면 바로 정산
+// · 더블: 처음 2장일 때, 스플릿 후에도 가능 · 스플릿: 최대 4손, A는 한 번만 + 한 장씩만
+// · 레이트 서렌더: 처음 2장일 때 베팅 절반을 돌려받고 포기 (스플릿 후 불가)
 const BJ_DECKS = 6;
 const cardVal = c => c[0] === 'A' ? 11 : 'TJQK'.includes(c[0]) ? 10 : +c[0];
 function bjTotal(cards) {
@@ -590,16 +689,20 @@ function bjTotal(cards) {
   return { t, soft: aces > 0 };
 }
 const isBJ = (cards, fromSplit) => !fromSplit && cards.length === 2 && bjTotal(cards).t === 21;
-function newShoe() {
+function newShoe(decks = BJ_DECKS) {
   const d = [];
-  for (let k = 0; k < BJ_DECKS; k++) for (const r of RANKS) for (const su of SUITS) d.push(r + su);
+  for (let k = 0; k < decks; k++) for (const r of RANKS) for (const su of SUITS) d.push(r + su);
   for (let i = d.length - 1; i > 0; i--) { const j = randInt(i + 1); [d[i], d[j]] = [d[j], d[i]]; }
   return d;
 }
-// 기본 전략 (딜러 S17, 더블 애프터 스플릿 허용)
-function basicStrategy(cards, up, canDouble, canSplit) {
-  const u = cardVal(up) === 11 ? 11 : cardVal(up);
+// 기본 전략 (6덱, S17, 더블 애프터 스플릿, 레이트 서렌더)
+function basicStrategy(cards, up, canDouble, canSplit, canSurrender) {
+  const u = cardVal(up);
   const { t, soft } = bjTotal(cards);
+  if (canSurrender && cards.length === 2 && !soft) {
+    const p88 = cards[0][0] === '8' && cards[1][0] === '8';
+    if (!p88 && ((t === 16 && u >= 9) || (t === 15 && u === 10))) return 'surrender';
+  }
   if (canSplit && cards.length === 2 && cardVal(cards[0]) === cardVal(cards[1])) {
     const p = cardVal(cards[0]);
     if (p === 11 || p === 8) return 'split';
@@ -626,17 +729,15 @@ function basicStrategy(cards, up, canDouble, canSplit) {
 function bjBotMove(room, s, hand) {
   const L = s.lv || 'normal';
   const up = room.r.dl[0];
-  const canDouble = hand.cards.length === 2 && s.stack >= hand.bet;
-  const canSplit = room.canSplit(s, hand);
+  const canDouble = room.canDouble(s, hand), canSplit = room.canSplit(s, hand), canSur = room.canSurrender(s, hand);
   const { t } = bjTotal(hand.cards);
   if (L === 'easy') {
     if (canSplit && cardVal(hand.cards[0]) === 11 && rnd() < 0.6) return 'split';
     if (canDouble && t === 11 && rnd() < 0.4) return 'double';
     return t < 15 || (t < 17 && rnd() < 0.4) ? 'hit' : 'stand';
   }
-  const best = basicStrategy(hand.cards, up, canDouble, canSplit);
   if (L === 'normal' && rnd() < 0.12) return t < 13 ? 'hit' : (rnd() < 0.5 ? 'hit' : 'stand');
-  return best;
+  return basicStrategy(hand.cards, up, canDouble, canSplit, L === 'hard' && canSur);
 }
 function bjBotBet(room, s) {
   const mb = room.settings.minBet, L = s.lv || 'normal';
@@ -644,38 +745,48 @@ function bjBotBet(room, s) {
   if (rnd() < 0.08) units *= 3;
   return Math.max(mb, Math.min(s.stack, units * mb));
 }
+// 행운 모드 블랙잭 승률 맞추기: 이 비율만큼은 '이기는 판', 나머지는 '지는 쪽으로 기우는 판'
+// (지는 쪽 판에서도 블랙잭·21이 나오면 이길 수 있어서 실제 승률은 이보다 조금 높게 나옴 → 시뮬레이션으로 92%에 맞춤)
+const BJ_LUCKY_WIN = 0.905;
+const newHand = bet => ({ cards: [], bet, done: false, dbl: false, split: false, aceSplit: false, nat: false, sur: false, even: false, res: '', pay: 0 });
 
 class BJRoom extends Room {
   constructor(code) {
     super(code);
     this.game = 'bj';
     this.settings = { stack: 1000, minBet: 20, timer: 30 };
-    this.shoe = newShoe();
+    this.shoe = newShoe(BJ_DECKS);
     this.r = this.blankRound(0);
-    this.dealerAt = 0; this.betEnd = 0;
+    this.dealerAt = 0; this.betEnd = 0; this.insEnd = 0;
   }
-  blankRound(sq) { return { no: 0, sq, st: 'idle', tu: -1, hi: 0, dl: [], hide: true, line: '', dealerBJ: false, lucky: null }; }
-  newSeat(pid, name) { const s = super.newSeat(pid, name); s.bj = { want: 0, ok: false, sit: false, inR: false, hands: [], net: 0 }; return s; }
-  resetBJ(s) { s.bj = { want: s.bj ? s.bj.want : 0, ok: false, sit: false, inR: false, hands: [], net: 0 }; s.won = 0; }
+  blankRound(sq) { return { no: 0, sq, st: 'idle', tu: -1, hi: 0, dl: [], hide: true, line: '', dealerBJ: false, lucky: null, unlucky: null }; }
+  newSeat(pid, name) { const s = super.newSeat(pid, name); s.bj = { want: 0, ok: false, sit: false, inR: false, hands: [], net: 0, ins: 0, insd: false, insRes: '' }; return s; }
+  resetBJ(s) { s.bj = { want: s.bj ? s.bj.want : 0, ok: false, sit: false, inR: false, hands: [], net: 0, ins: 0, insd: false, insRes: '' }; s.won = 0; }
   reveal() { return false; }
-  live() { return this.r.st === 'bet' || this.r.st === 'play' || this.r.st === 'dealer'; }
+  live() { return this.r.st === 'ins' || this.r.st === 'play' || this.r.st === 'dealer'; }
+  safeToRemove() { return this.status !== 'playing' || !this.live(); }
+  canDropOffline() { return this.safeToRemove() && this.r.st !== 'bet'; }
+  removeSeatAt(i) { this.seats.splice(i, 1); if (this.r.tu > i) this.r.tu--; }
+  onKick(seat) {
+    const r = this.r, i = this.seats.indexOf(seat);
+    if (this.status !== 'playing' || !seat.bj.inR) return;
+    seat.bj.insd = true;
+    if (r.st === 'play') { seat.bj.hands.forEach(h => { h.done = true; }); if (r.tu === i) this.advance(); }
+  }
 
-  /* ---- 카드 뽑기 (행운 모드면 원하는 카드를 슈 위쪽에서 골라옴) ---- */
+  /* ---- 카드 뽑기: prefs(조건 목록)가 있으면 남은 카드 중 조건에 맞는 카드를 무작위 위치에서 가져옴 ---- */
   draw(prefs) {
     if (prefs && prefs.length) {
-      const top = this.shoe.length - 1, lim = 0;
+      const top = this.shoe.length - 1;
       for (const pred of prefs) {
-        for (let k = top; k >= lim; k--) if (pred(this.shoe[k])) { const t = this.shoe[top]; this.shoe[top] = this.shoe[k]; this.shoe[k] = t; return this.shoe.pop(); }
+        for (let k = top; k >= 0; k--) if (pred(this.shoe[k])) { const t = this.shoe[top]; this.shoe[top] = this.shoe[k]; this.shoe[k] = t; return this.shoe.pop(); }
       }
     }
     return this.shoe.pop();
   }
-  luckySeat() { const r = this.r; return r.lucky ? this.seats.find(s => s.id === r.lucky) : null; }
-  luckyBest() {
-    const ls = this.luckySeat(); if (!ls) return 0;
-    let b = 99; for (const h of ls.bj.hands) { const t = bjTotal(h.cards).t; if (t <= 21 && t < b) b = t; }
-    return b === 99 ? 0 : b;
-  }
+  isLucky(s) { return !!this.r.lucky && s.id === this.r.lucky; }
+  hitPrefs(s, h) { return this.isLucky(s) ? [c => bjTotal([...h.cards, c]).t <= 21] : null; }
+  liveTotals(s) { return s.bj.hands.filter(h => !h.sur && !h.even && !h.nat && bjTotal(h.cards).t <= 21).map(h => bjTotal(h.cards).t); }
 
   /* ---- 진행 ---- */
   startRound() {
@@ -684,20 +795,21 @@ class BJRoom extends Room {
     const humanHere = this.seats.some(s => !s.bot && s.online);
     const mb = this.settings.minBet;
     this.seats.forEach(s => { s.out = s.stack < mb; });
-    const elig = this.seats.filter(s => s.online && !s.out);
+    const elig = this.seats.filter(s => s.online && !s.out && !s.kicked);
     if (!humanHere || !elig.length) {
       r.st = 'idle'; r.sq++; this.msg = !humanHere ? '접속한 사람이 없어서 쉬는 중이에요' : '베팅할 칩이 있는 사람이 없어요. 방장이 리바이를 해 주세요';
       this.nextAt = now + 3000; this.dirty = true; return;
     }
     this.msg = '';
-    if (this.shoe.length < 52 * BJ_DECKS * 0.25) { this.shoe = newShoe(); this.log('카드를 새로 섞었어요'); }
-    r.no++; r.sq++; r.st = 'bet'; r.tu = -1; r.hi = 0; r.dl = []; r.hide = true; r.line = ''; r.dealerBJ = false;
-    const lucky = this.seats.find(s => s.lucky && elig.includes(s));
-    r.lucky = lucky && rnd() < LUCKY_RATE ? lucky.id : null;
+    if (this.shoe.length < 52 * BJ_DECKS * 0.25) { this.shoe = newShoe(BJ_DECKS); this.log('카드를 새로 섞었어요'); }
+    Object.assign(r, { st: 'bet', tu: -1, hi: 0, dl: [], hide: true, line: '', dealerBJ: false, lucky: null, unlucky: null });
+    r.no++; r.sq++;
+    const ls = this.seats.find(s => s.lucky && elig.includes(s));
+    if (ls) { if (rnd() < BJ_LUCKY_WIN) r.lucky = ls.id; else r.unlucky = ls.id; }
     elig.forEach(s => {
       s.bj.inR = true;
       s.bj.want = Math.max(mb, Math.min(s.stack, s.bj.want || mb));
-      if (s.bot) { s.bj.botAt = now + 700 + randInt(1600); }
+      if (s.bot) s.bj.botAt = now + 700 + randInt(1600);
     });
     this.betEnd = this.settings.timer ? now + 15000 : 0;
     this.log(`#${r.no} 베팅 시작`);
@@ -709,45 +821,59 @@ class BJRoom extends Room {
     const a = String(msg.a || '');
     if (r.st === 'bet' && s.bj.inR && !s.bj.ok) {
       const mb = this.settings.minBet;
-      if (a === 'bet') { s.bj.want = Math.max(mb, Math.min(s.stack, Math.round((+msg.x || 0) / mb) * mb || mb)); if (+msg.x >= s.stack) s.bj.want = s.stack; this.dirty = true; }
-      else if (a === 'betok') { if (msg.x !== undefined) s.bj.want = Math.max(mb, Math.min(s.stack, Math.floor(+msg.x) || mb)); s.bj.ok = true; s.bj.sit = false; this.dirty = true; }
-      else if (a === 'sit') { s.bj.ok = true; s.bj.sit = true; this.log(`${s.name} 이번 판 쉬기`); this.dirty = true; }
+      if (a === 'betok') {
+        const x = Math.floor(+msg.x || 0);
+        if (x < mb && s.stack >= mb) { tell(pid, 'err', `최소 베팅은 ${fmt(mb)}이에요`); return; }
+        s.bj.want = Math.max(Math.min(mb, s.stack), Math.min(s.stack, x));
+        s.bj.ok = true; s.bj.sit = false; this.dirty = true;
+      } else if (a === 'sit') { s.bj.ok = true; s.bj.sit = true; this.log(`${s.name} 이번 판 쉬기`); this.dirty = true; }
       this.tick(Date.now()); return;
+    }
+    if (r.st === 'ins' && s.bj.inR && s.bj.hands.length && !s.bj.insd && a === 'ins') {
+      this.insDecide(s, !!+msg.x); this.tick(Date.now()); return;
     }
     if (r.st === 'play' && r.tu === i && msg.sq === r.sq) {
       if (!this.act(i, a)) { tell(pid, 'err', '지금은 그 행동을 할 수 없어요'); return; }
       this.tick(Date.now());
     }
   }
+  insDecide(s, take) {
+    const h = s.bj.hands[0];
+    if (take && h) {
+      if (h.nat) { h.even = true; this.log(`${s.name} 이븐 머니`); }
+      else { const amt = Math.floor(h.bet / 2); if (amt > 0 && s.stack >= amt) { s.stack -= amt; s.bj.ins = amt; this.log(`${s.name} 인슈어런스 ${fmt(amt)}`); } }
+    }
+    s.bj.insd = true; this.dirty = true;
+  }
   deal() {
     const r = this.r, now = Date.now();
-    const players = this.seats.filter(s => s.bj.inR && !s.bj.sit && s.online && s.stack >= this.settings.minBet);
+    const players = this.seats.filter(s => s.bj.inR && !s.bj.sit && s.online && !s.kicked && s.stack >= Math.min(this.settings.minBet, s.bj.want));
     this.seats.forEach(s => { if (s.bj.inR && !players.includes(s)) s.bj.inR = false; });
     if (!players.length) { r.st = 'show'; r.line = '모두 이번 판을 쉬었어요'; this.nextAt = now + 2500; r.sq++; this.dirty = true; return; }
-    players.forEach(s => { const b = Math.max(this.settings.minBet, Math.min(s.stack, s.bj.want)); s.stack -= b; s.bj.hands = [{ cards: [], bet: b, done: false, dbl: false, split: false, res: '', pay: 0 }]; s.inHand = true; });
-    const ls = this.luckySeat();
-    const lp = ls && players.includes(ls);
-    // 1장씩 두 바퀴: 플레이어들 → 딜러
+    players.forEach(s => { const b = Math.max(1, Math.min(s.stack, s.bj.want)); s.stack -= b; s.bj.hands = [newHand(b)]; s.inHand = true; });
+    const luckyIn = r.lucky && players.some(p => p.id === r.lucky);
+    // 실제 카지노처럼 1장씩 두 바퀴: 플레이어들 → 딜러 (행운 판이면 딜러 두 번째 카드만 16 이하가 되도록)
     for (let round = 0; round < 2; round++) {
-      for (const s of players) {
-        const h = s.bj.hands[0];
-        let prefs = null;
-        if (lp && s === ls) {
-          prefs = round === 0 ? [c => cardVal(c) >= 10] : [c => { const t = bjTotal([...h.cards, c]).t; return t >= 20; }, c => { const t = bjTotal([...h.cards, c]).t; return t >= 18; }];
-        }
-        h.cards.push(this.draw(prefs));
-      }
-      let dprefs = null;
-      if (lp) dprefs = round === 0 ? [c => { const v = cardVal(c); return v >= 4 && v <= 6; }, c => cardVal(c) < 10] : [c => { const t = bjTotal([...r.dl, c]).t; return t >= 12 && t <= 16; }];
-      r.dl.push(this.draw(dprefs));
+      for (const s of players) s.bj.hands[0].cards.push(this.draw(null));
+      r.dl.push(this.draw(luckyIn && round === 1 ? [c => bjTotal([r.dl[0], c]).t <= 16] : null));
     }
     r.hide = true;
-    players.forEach(s => { const h = s.bj.hands[0]; if (isBJ(h.cards)) { h.done = true; } });
-    const upV = cardVal(r.dl[0]);
+    players.forEach(s => { const h = s.bj.hands[0]; if (isBJ(h.cards)) { h.nat = true; h.done = true; } });
+    if (r.dl[0][0] === 'A') {
+      r.st = 'ins'; r.sq++; this.insEnd = now + 12000;
+      players.forEach(s => { s.bj.insd = false; if (s.bot) s.bj.botAt = now + 800 + randInt(1500); });
+      this.log('딜러가 A를 보여요 · 인슈어런스 받는 중');
+      this.dirty = true; return;
+    }
+    this.afterInsurance();
+  }
+  afterInsurance() {
+    const r = this.r, upV = cardVal(r.dl[0]);
     if ((upV === 10 || upV === 11) && isBJ(r.dl)) {
       r.dealerBJ = true; r.st = 'dealer'; r.hide = false; r.tu = -1; r.sq++;
-      this.dealerAt = now + 1200; this.dirty = true; return;
+      this.dealerAt = Date.now() + 1300; this.dirty = true; return;
     }
+    if (upV === 11) this.log('딜러 블랙잭 아님 · 게임 계속');
     r.st = 'play'; r.tu = -1; r.hi = 0;
     this.advance();
   }
@@ -764,52 +890,61 @@ class BJRoom extends Room {
     r.tu = -1; r.hi = 0; r.st = 'dealer'; r.hide = false; r.sq++;
     this.dealerAt = Date.now() + 900; this.dirty = true;
   }
-  canSplit(s, h) { return s.bj.hands.length === 1 && h.cards.length === 2 && cardVal(h.cards[0]) === cardVal(h.cards[1]) && s.stack >= h.bet; }
-  luckyPrefsFor(s, h) {
-    if (!this.r.lucky || s.id !== this.r.lucky) return null;
-    return [c => { const t = bjTotal([...h.cards, c]).t; return t >= 19 && t <= 21; }, c => bjTotal([...h.cards, c]).t <= 21];
-  }
+  canSplit(s, h) { return s.bj.hands.length < 4 && h.cards.length === 2 && !h.aceSplit && cardVal(h.cards[0]) === cardVal(h.cards[1]) && s.stack >= h.bet && !(h.cards[0][0] === 'A' && s.bj.hands.length > 1); }
+  canDouble(s, h) { return h.cards.length === 2 && !h.aceSplit && s.stack >= h.bet; }
+  canSurrender(s, h) { return s.bj.hands.length === 1 && !h.split && h.cards.length === 2 && !h.dbl; }
   act(i, a) {
     const r = this.r, s = this.seats[i]; if (!s || r.st !== 'play' || r.tu !== i) return false;
     const h = s.bj.hands[r.hi]; if (!h || h.done) return false;
     if (a === 'hit') {
-      h.cards.push(this.draw(this.luckyPrefsFor(s, h)));
-      const t = bjTotal(h.cards).t;
-      if (t >= 21) h.done = true;
+      h.cards.push(this.draw(this.hitPrefs(s, h)));
+      if (bjTotal(h.cards).t >= 21) h.done = true;
     } else if (a === 'stand') {
       h.done = true;
     } else if (a === 'double') {
-      if (h.cards.length !== 2 || s.stack < h.bet) return false;
+      if (!this.canDouble(s, h)) return false;
       s.stack -= h.bet; h.bet *= 2; h.dbl = true;
-      h.cards.push(this.draw(this.luckyPrefsFor(s, h))); h.done = true;
+      h.cards.push(this.draw(this.hitPrefs(s, h))); h.done = true;
     } else if (a === 'split') {
       if (!this.canSplit(s, h)) return false;
       s.stack -= h.bet;
       const aces = h.cards[0][0] === 'A';
-      const h2 = { cards: [h.cards.pop()], bet: h.bet, done: false, dbl: false, split: true, res: '', pay: 0 };
-      h.split = true;
-      h.cards.push(this.draw(this.luckyPrefsFor(s, h)));
-      h2.cards.push(this.draw(this.luckyPrefsFor(s, h2)));
-      s.bj.hands.push(h2);
+      const h2 = newHand(h.bet); h2.cards = [h.cards.pop()];
+      h.split = h2.split = true;
+      if (aces) h.aceSplit = h2.aceSplit = true;
+      h.cards.push(this.draw(this.hitPrefs(s, h)));
+      h2.cards.push(this.draw(this.hitPrefs(s, h2)));
+      s.bj.hands.splice(r.hi + 1, 0, h2);
       if (aces) { h.done = true; h2.done = true; }
-      for (const x of s.bj.hands) if (bjTotal(x.cards).t >= 21) x.done = true;
+      for (const x of [h, h2]) if (bjTotal(x.cards).t >= 21) x.done = true;
+    } else if (a === 'surrender') {
+      if (!this.canSurrender(s, h)) return false;
+      h.sur = true; h.done = true;
     } else return false;
     this.advance();
     return true;
   }
   dealerStep() {
     const r = this.r;
-    const liveHands = this.seats.some(s => s.bj.inR && s.bj.hands.some(h => bjTotal(h.cards).t <= 21 && !isBJ(h.cards, h.split)));
+    const anyLive = this.seats.some(s => s.bj.inR && this.liveTotals(s).length);
     const dt = bjTotal(r.dl);
-    if (r.dealerBJ || !liveHands || dt.t >= 17) { this.settle(); return; }
+    if (r.dealerBJ || !anyLive || dt.t >= 17) { this.settle(); return; }
+    const fin = c => bjTotal([...r.dl, c]).t;
     let prefs = null;
     if (r.lucky) {
-      const lb = this.luckyBest();
-      // 다른 사람들의 최고 점수 (버스트 안 한 손)
-      let ob = 0; const ls = this.luckySeat();
-      for (const o of this.seats) if (o !== ls && o.bj.inR) for (const h of o.bj.hands) { const t = bjTotal(h.cards).t; if (t <= 21 && t > ob) ob = t; }
-      const fin = c => bjTotal([...r.dl, c]).t;
-      if (lb) prefs = [c => { const t = fin(c); return t >= 17 && t < lb && t >= ob; }, c => { const t = fin(c); return t >= 17 && t < lb; }, ...(lb > 17 ? [c => fin(c) < 17] : []), c => fin(c) > 21];
+      const ls = this.seats.find(s => s.id === r.lucky);
+      const lt = ls ? this.liveTotals(ls) : [];
+      if (lt.length) {
+        const lb = Math.min(...lt);
+        let ob = 0; for (const o of this.seats) if (o !== ls && o.bj.inR) for (const t of this.liveTotals(o)) if (t > ob) ob = t;
+        prefs = lb > 17
+          ? [c => { const t = fin(c); return t >= 17 && t < lb && t >= ob; }, c => { const t = fin(c); return t >= 17 && t < lb; }, c => fin(c) < 17, c => fin(c) > 21]
+          : [c => fin(c) > 21, c => fin(c) < 17];
+      }
+    } else if (r.unlucky) {
+      const us = this.seats.find(s => s.id === r.unlucky);
+      const ut = us ? this.liveTotals(us) : [];
+      if (ut.length) { const ub = Math.max(...ut); prefs = [c => { const t = fin(c); return t >= 17 && t <= 21 && t > ub; }, c => fin(c) < 17]; }
     }
     r.dl.push(this.draw(prefs));
     this.dirty = true;
@@ -822,19 +957,23 @@ class BJRoom extends Room {
     for (const s of this.seats) {
       if (!s.bj.inR || !s.bj.hands.length) continue;
       let net = 0;
+      if (s.bj.ins) { const back = dBJ ? s.bj.ins * 3 : 0; s.stack += back; net += back - s.bj.ins; s.bj.insRes = dBJ ? 'win' : 'lose'; }
       for (const h of s.bj.hands) {
-        const t = bjTotal(h.cards).t, pBJ = isBJ(h.cards, h.split);
+        const t = bjTotal(h.cards).t;
         let back = 0;
-        if (t > 21) { h.res = 'bust'; back = 0; }
-        else if (pBJ && dBJ) { h.res = 'push'; back = h.bet; }
-        else if (pBJ) { h.res = 'bj'; back = h.bet + Math.floor(h.bet * 1.5); }
-        else if (dBJ) { h.res = 'lose'; back = 0; }
+        if (h.even) { h.res = 'even'; back = h.bet * 2; }
+        else if (h.sur) { h.res = 'sur'; back = Math.floor(h.bet / 2); }
+        else if (t > 21) { h.res = 'bust'; }
+        else if (h.nat && dBJ) { h.res = 'push'; back = h.bet; }
+        else if (h.nat) { h.res = 'bj'; back = h.bet + Math.floor(h.bet * 1.5); }
+        else if (dBJ) { h.res = 'lose'; }
         else if (dBust || t > d.t) { h.res = 'win'; back = h.bet * 2; }
         else if (t === d.t) { h.res = 'push'; back = h.bet; }
-        else { h.res = 'lose'; back = 0; }
+        else { h.res = 'lose'; }
         h.pay = back - h.bet; s.stack += back; net += h.pay;
       }
       s.bj.net = net; s.won = net;
+      this.statHand(s, net);
       parts.push(`${s.name} ${net > 0 ? '+' : ''}${fmt(net)}`);
     }
     r.line = dBJ ? '딜러 블랙잭!' : dBust ? `딜러 버스트! (${d.t})` : `딜러 ${d.t}`;
@@ -861,35 +1000,29 @@ class BJRoom extends Room {
   /* ---- 방장 ---- */
   hostCmd(cmd, arg) {
     if (cmd === 'set' && this.status === 'lobby' && arg && typeof arg === 'object') {
-      const ok = { stack: [500, 1000, 2000, 5000, 10000], minBet: [10, 20, 50, 100, 200], timer: [20, 30, 60, 0] };
+      const ok = { stack: [500, 1000, 2000, 5000, 10000, 50000], minBet: [10, 20, 50, 100, 200, 500], timer: [20, 30, 60, 0] };
       for (const k of Object.keys(ok)) if (arg[k] !== undefined && ok[k].includes(+arg[k])) this.settings[k] = +arg[k];
       this.seats.forEach(s => { s.stack = this.settings.stack; });
       this.dirty = true;
     } else if (cmd === 'addbot') {
       return this.addBot(String(arg && arg.lv || 'normal'));
-    } else if (cmd === 'kickbot') {
-      const b = this.seats.find(s => s.bot && s.id === String(arg && arg.id));
-      if (!b) return '';
-      if (this.status === 'playing' && this.live() && b.bj.inR) return '이번 판이 끝난 뒤에 뺄 수 있어요';
-      const i = this.seats.indexOf(b);
-      if (this.r.tu > i) this.r.tu--;
-      this.seats.splice(i, 1);
-      this.log(`${b.name} 퇴장`); this.dirty = true;
     } else if (cmd === 'start' && this.status === 'lobby') {
       if (!this.seats.some(s => s.online && !s.bot)) return '접속한 사람이 있어야 시작할 수 있어요';
       this.seats.forEach(s => { s.stack = this.settings.stack; s.out = false; s.bj.want = 0; });
       this.status = 'playing'; this.r = this.blankRound(this.r.sq + 1);
+      this.statInit();
       this.log(`블랙잭 시작 · 시작 칩 ${fmt(this.settings.stack)}, 최소 베팅 ${fmt(this.settings.minBet)}`);
       this.startRound();
     } else if (cmd === 'next' && this.status === 'playing' && (this.r.st === 'show' || this.r.st === 'idle')) {
       this.nextAt = 0; this.startRound();
     } else if (cmd === 'rebuy') {
-      let k = 0; this.seats.forEach(s => { if (s.stack < this.settings.minBet && !(this.live() && s.bj.inR)) { s.stack = this.settings.stack; s.out = false; k++; } });
+      let k = 0; this.seats.forEach(s => { if (s.stack < this.settings.minBet && !(this.live() && s.bj.inR)) { this.statBuy(s, this.settings.stack - s.stack); s.stack = this.settings.stack; s.out = false; k++; } });
       if (k) { this.log(`칩이 떨어진 ${k}명 리바이 (${fmt(this.settings.stack)})`); this.dirty = true; }
     } else if (cmd === 'lobby') {
+      this.rankLog();
       this.status = 'lobby'; this.nextAt = 0; this.dealerAt = 0;
       this.r = this.blankRound(this.r.sq + 1); this.msg = '';
-      this.seats = this.seats.filter(s => s.online);
+      this.seats = this.seats.filter(s => s.online && !s.kicked);
       this.seats.forEach(s => { this.resetBJ(s); s.stack = this.settings.stack; s.out = false; s.inHand = false; });
       this.log('대기실로 돌아왔어요'); this.dirty = true;
     }
@@ -898,30 +1031,27 @@ class BJRoom extends Room {
 
   /* ---- 주기 처리 ---- */
   tick(now) {
-    const host = this.seatOf(this.hostPid);
-    if (!host || (!host.online && now - host.offSince > 30000)) {
-      const next = this.seats.find(s => s.online && !s.bot && s.pid !== this.hostPid);
-      if (next) { this.hostPid = next.pid; this.log(`${next.name}님이 새 방장이 됐어요`); this.dirty = true; }
-    }
+    this.commonTick(now);
     const r = this.r;
-    if (this.status !== 'playing' || r.st === 'show' || r.st === 'idle') {
-      const before = this.seats.length;
-      this.seats = this.seats.filter(s => { if (s.online || now - s.offSince < 60000) return true; this.log(`${s.name} 퇴장`); return false; });
-      if (before !== this.seats.length) this.dirty = true;
-    }
     if (this.status === 'playing') {
       if ((r.st === 'show' || r.st === 'idle') && this.nextAt && now >= this.nextAt) { this.nextAt = 0; this.startRound(); }
       else if (r.st === 'bet') {
         for (const s of this.seats) if (s.bot && s.bj.inR && !s.bj.ok && now >= (s.bj.botAt || 0)) { s.bj.want = bjBotBet(this, s); s.bj.ok = true; this.dirty = true; }
-        const waiting = this.seats.filter(s => s.bj.inR && !s.bj.ok && s.online);
+        const waiting = this.seats.filter(s => s.bj.inR && !s.bj.ok && s.online && !s.kicked);
         if (!waiting.length || (this.betEnd && now >= this.betEnd)) this.deal();
+      } else if (r.st === 'ins') {
+        for (const s of this.seats) if (s.bot && s.bj.inR && s.bj.hands.length && !s.bj.insd && now >= (s.bj.botAt || 0)) {
+          this.insDecide(s, s.lv === 'easy' && rnd() < 0.35);
+        }
+        const waiting = this.seats.filter(s => s.bj.inR && s.bj.hands.length && !s.bj.insd && s.online && !s.kicked);
+        if (!waiting.length || now >= this.insEnd) { this.seats.forEach(s => { s.bj.insd = true; }); this.afterInsurance(); }
       } else if (r.st === 'play' && r.tu >= 0) {
         const s = this.seats[r.tu], h = s && s.bj.hands[r.hi];
         if (!s || !h) { this.advance(); }
         else if (s.bot) {
           if (this.botFor !== r.sq) { this.botFor = r.sq; this.botAt = now + 650 + randInt(1100); }
           else if (now >= this.botAt) { let m; try { m = bjBotMove(this, s, h); } catch (e) { m = 'stand'; } if (!this.act(r.tu, m)) this.act(r.tu, 'stand'); }
-        } else if (now - this.turnStart > this.turnLimit(s)) { this.log(`${s.name} 시간 초과 · 스탠드`); this.act(r.tu, 'stand'); }
+        } else if (s.kicked || now - this.turnStart > this.turnLimit(s)) { if (!s.kicked) this.log(`${s.name} 시간 초과 · 스탠드`); this.act(r.tu, 'stand'); }
       } else if (r.st === 'dealer' && now >= this.dealerAt) this.dealerStep();
     }
     if (this.dirty) { this.dirty = false; this.broadcast(); }
@@ -934,16 +1064,286 @@ class BJRoom extends Room {
     const dl = r.hide && r.dl.length === 2 ? [r.dl[0], 'back'] : r.dl;
     const dv = r.hide ? (r.dl.length ? bjTotal([r.dl[0]]) : { t: 0, soft: false }) : bjTotal(r.dl);
     return {
-      game: 'bj', code: this.code, status: this.status, set: this.settings, msg: this.msg,
+      game: 'bj', code: this.code, status: this.status, set: this.settings, msg: this.msg, rk: this.ranking(),
       seats: this.seats.map(s => ({
         id: s.id, n: s.name, s: s.stack, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '',
-        ir: s.bj.inR ? 1 : 0, want: s.bj.want, ok: s.bj.ok ? 1 : 0, sit: s.bj.sit ? 1 : 0, w: s.bj.net,
-        hs: s.bj.hands.map(h => { const t = bjTotal(h.cards); return { c: h.cards, b: h.bet, t: t.t, soft: t.soft && t.t < 21 ? 1 : 0, bj: isBJ(h.cards, h.split) ? 1 : 0, done: h.done ? 1 : 0, dbl: h.dbl ? 1 : 0, res: h.res, pay: h.pay }; })
+        pg: s.pendGive || 0, ir: s.bj.inR ? 1 : 0, want: s.bj.want, ok: s.bj.ok ? 1 : 0, sit: s.bj.sit ? 1 : 0, w: s.bj.net, ins: s.bj.ins, insd: s.bj.insd ? 1 : 0, insr: s.bj.insRes,
+        hs: s.bj.hands.map(h => { const t = bjTotal(h.cards); return { c: h.cards, b: h.bet, t: t.t, soft: t.soft && t.t < 21 ? 1 : 0, bj: h.nat ? 1 : 0, done: h.done ? 1 : 0, dbl: h.dbl ? 1 : 0, sp: h.split ? 1 : 0, as: h.aceSplit ? 1 : 0, sur: h.sur ? 1 : 0, ev: h.even ? 1 : 0, res: h.res, pay: h.pay }; })
       })),
       h: {
-        no: r.no, sq: r.sq, st: r.st, tu: r.tu, hi: r.hi, dl, dt: dv.t, ds: dv.soft && dv.t < 21 ? 1 : 0, line: r.line,
+        no: r.no, sq: r.sq, st: r.st, tu: r.tu, hi: r.hi, dl, dt: dv.t, ds: dv.soft && dv.t < 21 ? 1 : 0, line: r.line, dbj: r.dealerBJ ? 1 : 0,
         tl: turnSeat && !turnSeat.bot && isFinite(lim) ? Math.max(0, lim - (now - this.turnStart)) : -1,
         tt: isFinite(lim) ? lim : 0,
+        bl: r.st === 'bet' && this.betEnd ? Math.max(0, this.betEnd - now) : (r.st === 'ins' ? Math.max(0, this.insEnd - now) : -1),
+        nx: this.nextAt ? Math.max(0, this.nextAt - now) : -1
+      }
+    };
+  }
+  sendTo(c, pub) {
+    const me = this.seats.findIndex(s => s.pid === c.pid), seat = this.seats[me];
+    c.emit('state', { ...pub, me, isHost: c.pid === this.hostPid, lk: seat && seat.lucky ? 1 : 0 });
+  }
+}
+
+/* ================= 바카라 ================= */
+// 규칙 (일반적인 카지노 미니 바카라 기준)
+// · 8덱 슈 · 카드 값: A=1, 2~9=숫자, 10/J/Q/K=0, 합계의 일의 자리만 씀
+// · 처음 두 장이 8이나 9면 내추럴 → 둘 다 멈춤
+// · 플레이어: 0~5 한 장 더, 6~7 멈춤
+// · 뱅커: 플레이어가 멈췄으면 0~5 한 장 더. 플레이어가 세 번째 카드를 받았으면
+//   0~2 받음 / 3: 그 카드가 8이 아니면 / 4: 2~7이면 / 5: 4~7이면 / 6: 6~7이면 / 7 멈춤
+// · 배당: 플레이어 1:1 · 뱅커 1:1에서 5% 커미션(0.95:1) · 타이 8:1 (타이면 플레이어/뱅커 베팅은 돌려받음)
+// · 플레이어 페어 / 뱅커 페어: 처음 두 장이 같은 숫자면 11:1
+// · 플레이어 보너스 / 뱅커 보너스 (드래곤 보너스): 내추럴로 이기면 1:1, 내추럴 타이면 돌려받음,
+//   내추럴이 아닐 때 9점 차 30:1, 8점 차 10:1, 7점 차 6:1, 6점 차 4:1, 5점 차 2:1, 4점 차 1:1, 그 아래는 짐
+const BAC_DECKS = 8;
+const BAC_SPOTS = ['p', 'b', 't', 'pp', 'bp', 'pb', 'bb'];
+const BAC_NAMES = { p: '플레이어', b: '뱅커', t: '타이', pp: 'P페어', bp: 'B페어', pb: 'P보너스', bb: 'B보너스' };
+const BAC_BONUS = { 9: 30, 8: 10, 7: 6, 6: 4, 5: 2, 4: 1 };
+const bacVal = c => 'TJQK'.includes(c[0]) ? 0 : c[0] === 'A' ? 1 : +c[0];
+const bacTot = cs => cs.reduce((a, c) => a + bacVal(c), 0) % 10;
+function bacPlay(seq) {
+  let i = 0;
+  const p = [seq[i++]], b = [seq[i++]]; p.push(seq[i++]); b.push(seq[i++]);
+  const p2 = bacTot(p), b2 = bacTot(b);
+  const nat = p2 >= 8 || b2 >= 8;
+  if (!nat) {
+    let p3 = null;
+    if (p2 <= 5) { p3 = seq[i++]; p.push(p3); }
+    let bDraw;
+    if (p3 === null) bDraw = b2 <= 5;
+    else {
+      const x = bacVal(p3);
+      bDraw = b2 <= 2 || (b2 === 3 && x !== 8) || (b2 === 4 && x >= 2 && x <= 7) || (b2 === 5 && x >= 4 && x <= 7) || (b2 === 6 && (x === 6 || x === 7));
+    }
+    if (bDraw) b.push(seq[i++]);
+  }
+  const pt = bacTot(p), bt = bacTot(b);
+  return { p, b, pt, bt, win: pt > bt ? 'P' : bt > pt ? 'B' : 'T', used: i, pNat: nat && p2 >= 8, bNat: nat && b2 >= 8, pp: p[0][0] === p[1][0], bp: b[0][0] === b[1][0] };
+}
+function bacBonusMult(side, o) {
+  const mine = side === 'P' ? o.pt : o.bt, other = side === 'P' ? o.bt : o.pt, nat = side === 'P' ? o.pNat : o.bNat;
+  if (o.win === side) { if (nat) return 2; const m = BAC_BONUS[mine - other]; return m ? m + 1 : 0; }
+  if (o.win === 'T' && nat) return 1;
+  return 0;
+}
+// 각 칸에 건 금액 a가 돌려받는 총액(원금 포함)
+function bacReturn(spot, a, o) {
+  if (!a) return 0;
+  switch (spot) {
+    case 'p': return o.win === 'P' ? a * 2 : o.win === 'T' ? a : 0;
+    case 'b': return o.win === 'B' ? a + Math.floor(a * 0.95) : o.win === 'T' ? a : 0;
+    case 't': return o.win === 'T' ? a * 9 : 0;
+    case 'pp': return o.pp ? a * 12 : 0;
+    case 'bp': return o.bp ? a * 12 : 0;
+    case 'pb': return a * bacBonusMult('P', o);
+    case 'bb': return a * bacBonusMult('B', o);
+  }
+  return 0;
+}
+const bacSum = bets => BAC_SPOTS.reduce((a, k) => a + (bets[k] || 0), 0);
+const bacNet = (bets, o) => BAC_SPOTS.reduce((a, k) => a + bacReturn(k, bets[k] || 0, o), 0) - bacSum(bets);
+function bacBotBets(room, s) {
+  const u = room.settings.minBet, L = s.lv || 'normal', bets = {};
+  const main = L === 'hard' ? (rnd() < 0.7 ? 'b' : 'p') : (rnd() < 0.5 ? 'p' : 'b');
+  bets[main] = u * (L === 'easy' ? 1 + randInt(4) : L === 'hard' ? 2 + randInt(2) : 1 + randInt(3));
+  if (L === 'easy') { if (rnd() < 0.25) bets.t = u; if (rnd() < 0.2) bets[rnd() < 0.5 ? 'pp' : 'bp'] = u; if (rnd() < 0.15) bets[main === 'p' ? 'pb' : 'bb'] = u; }
+  else if (L === 'normal') { if (rnd() < 0.08) bets.t = u; if (rnd() < 0.08) bets[rnd() < 0.5 ? 'pp' : 'bp'] = u; }
+  // 칩이 모자라면 큰 칸부터 줄임
+  while (bacSum(bets) > s.stack) { const k = Object.keys(bets).sort((a, b) => bets[b] - bets[a])[0]; if (bets[k] > u) bets[k] -= u; else delete bets[k]; if (!Object.keys(bets).length) break; }
+  return bets;
+}
+
+class BacRoom extends Room {
+  constructor(code) {
+    super(code);
+    this.game = 'bac';
+    this.settings = { stack: 1000, minBet: 20, timer: 20 };
+    this.shoe = newShoe(BAC_DECKS);
+    this.r = this.blankRound(0);
+    this.betEnd = 0; this.stepAt = 0;
+  }
+  blankRound(sq) { return { no: 0, sq, st: 'idle', o: null, order: [], shown: 0, line: '', hist: this.r ? this.r.hist : [], lucky: null, unlucky: null }; }
+  newSeat(pid, name) { const s = super.newSeat(pid, name); s.bac = { bets: {}, last: {}, ok: false, sit: false, inR: false, net: 0, res: {} }; return s; }
+  resetBac(s) { s.bac = { bets: {}, last: s.bac ? s.bac.last : {}, ok: false, sit: false, inR: false, net: 0, res: {} }; s.won = 0; s.inHand = false; }
+  reveal() { return false; }
+  live() { return this.r.st === 'deal'; }
+  safeToRemove() { return this.status !== 'playing' || this.r.st !== 'deal'; }
+  canDropOffline() { return this.safeToRemove() && this.r.st !== 'bet'; }
+  removeSeatAt(i) { this.seats.splice(i, 1); }
+  onKick() {}
+
+  startRound() {
+    const r = this.r, now = Date.now();
+    this.seats.forEach(s => this.resetBac(s));
+    const humanHere = this.seats.some(s => !s.bot && s.online);
+    const mb = this.settings.minBet;
+    this.seats.forEach(s => { s.out = s.stack < mb; });
+    const elig = this.seats.filter(s => s.online && !s.out && !s.kicked);
+    if (!humanHere || !elig.length) {
+      r.st = 'idle'; r.sq++; this.msg = !humanHere ? '접속한 사람이 없어서 쉬는 중이에요' : '베팅할 칩이 있는 사람이 없어요. 방장이 리바이를 해 주세요';
+      this.nextAt = now + 3000; this.dirty = true; return;
+    }
+    this.msg = '';
+    if (this.shoe.length < 52 * BAC_DECKS * 0.15) { this.shoe = newShoe(BAC_DECKS); this.log('카드를 새로 섞었어요'); }
+    Object.assign(r, { st: 'bet', o: null, order: [], shown: 0, line: '', lucky: null, unlucky: null });
+    r.no++; r.sq++;
+    const ls = this.seats.find(s => s.lucky && elig.includes(s));
+    if (ls) { if (rnd() < LUCKY_RATE) r.lucky = ls.id; else r.unlucky = ls.id; }
+    elig.forEach(s => { s.bac.inR = true; if (s.bot) s.bac.botAt = now + 800 + randInt(2200); });
+    this.betEnd = this.settings.timer ? now + this.settings.timer * 1000 : 0;
+    this.log(`#${r.no} 베팅 시작`);
+    this.dirty = true;
+  }
+  bacMsg(pid, msg) {
+    const r = this.r, s = this.seatOf(pid);
+    if (!s || r.st !== 'bet' || !s.bac.inR || s.bac.ok) return;
+    const a = String(msg.a || ''), mb = this.settings.minBet;
+    if (a === 'sit') { s.bac.ok = true; s.bac.sit = true; this.log(`${s.name} 이번 판 쉬기`); this.dirty = true; this.tick(Date.now()); return; }
+    if (a !== 'betok') return;
+    const src = msg.bets && typeof msg.bets === 'object' ? msg.bets : {};
+    const bets = {};
+    for (const k of BAC_SPOTS) { const v = Math.floor(+src[k] || 0); if (v > 0) bets[k] = v; }
+    const sum = bacSum(bets);
+    if (!sum) { tell(pid, 'err', '베팅할 칸을 골라 주세요'); return; }
+    if (Object.values(bets).some(v => v < mb)) { tell(pid, 'err', `각 칸은 최소 ${fmt(mb)} 이상 걸어야 해요`); return; }
+    if (sum > s.stack) { tell(pid, 'err', '가진 칩보다 많이 걸 수 없어요'); return; }
+    s.bac.bets = bets; s.bac.last = { ...bets }; s.bac.ok = true; this.dirty = true;
+    this.tick(Date.now());
+  }
+  deal() {
+    const r = this.r, now = Date.now();
+    const players = this.seats.filter(s => s.bac.inR && s.bac.ok && !s.bac.sit && s.online && !s.kicked && bacSum(s.bac.bets) > 0 && bacSum(s.bac.bets) <= s.stack);
+    this.seats.forEach(s => { if (!players.includes(s)) { s.bac.inR = false; s.bac.bets = {}; } });
+    players.forEach(s => { s.stack -= bacSum(s.bac.bets); s.inHand = true; });
+    // 카드 고르기: 보통은 슈 맨 위에서 그대로. 행운 판이면 조건에 맞는 카드 조합을 슈 안에서 무작위로 찾아서 사용
+    let seq = null, o = null;
+    const ls = this.seats.find(s => (s.id === r.lucky || s.id === r.unlucky) && players.includes(s));
+    if (ls) {
+      const want = r.lucky ? 1 : -1;
+      const n = this.shoe.length;
+      for (let t = 0; t < 4000; t++) {
+        const idx = new Set(); while (idx.size < 6) idx.add(randInt(n));
+        const ix = [...idx], cand = ix.map(k => this.shoe[k]);
+        const oc = bacPlay(cand), net = bacNet(ls.bac.bets, oc);
+        if ((want > 0 && net > 0) || (want < 0 && net < 0)) {
+          const used = ix.slice(0, oc.used).sort((a, b) => b - a);
+          for (const k of used) this.shoe.splice(k, 1);
+          seq = cand.slice(0, oc.used); o = oc; break;
+        }
+      }
+    }
+    if (!o) { const top = this.shoe.slice(-6).reverse(); o = bacPlay(top); for (let k = 0; k < o.used; k++) this.shoe.pop(); }
+    r.o = o;
+    r.order = [['p', 0], ['b', 0], ['p', 1], ['b', 1]];
+    if (o.p.length === 3) r.order.push(['p', 2]);
+    if (o.b.length === 3) r.order.push(['b', 2]);
+    r.shown = 0; r.st = 'deal'; r.sq++;
+    this.stepAt = now + 500;
+    if (!players.length) { r.st = 'show'; r.line = '모두 이번 판을 쉬었어요'; r.o = null; this.nextAt = now + 2500; }
+    this.dirty = true;
+  }
+  step(now) {
+    const r = this.r;
+    if (r.shown < r.order.length) {
+      r.shown++;
+      // 세 번째 카드 전에는 살짝 더 뜸 들이기
+      this.stepAt = now + (r.shown >= 4 && r.shown < r.order.length ? 1100 : 650);
+      this.dirty = true;
+    } else this.settle();
+  }
+  settle() {
+    const r = this.r, o = r.o, now = Date.now();
+    const parts = [];
+    for (const s of this.seats) {
+      if (!s.bac.inR || !bacSum(s.bac.bets)) continue;
+      let back = 0; const res = {};
+      for (const k of BAC_SPOTS) { const a = s.bac.bets[k] || 0; if (!a) continue; const x = bacReturn(k, a, o); res[k] = x - a; back += x; }
+      const net = back - bacSum(s.bac.bets);
+      s.stack += back; s.bac.net = net; s.bac.res = res; s.won = net;
+      this.statHand(s, net);
+      parts.push(`${s.name} ${net > 0 ? '+' : ''}${fmt(net)}`);
+    }
+    const extras = [o.pp ? 'P페어' : '', o.bp ? 'B페어' : '', (o.pNat || o.bNat) ? '내추럴' : ''].filter(Boolean).join('·');
+    r.line = (o.win === 'P' ? `플레이어 승 · ${o.pt} 대 ${o.bt}` : o.win === 'B' ? `뱅커 승 · ${o.bt} 대 ${o.pt}` : `타이 · ${o.pt} 대 ${o.bt}`) + (extras ? ` (${extras})` : '');
+    r.hist = [...(r.hist || []), { w: o.win, pp: o.pp ? 1 : 0, bp: o.bp ? 1 : 0, n: o.win === 'B' ? o.bt : o.pt }].slice(-60);
+    this.log(`#${r.no} ${r.line}${parts.length ? ' · ' + parts.join(', ') : ''}`);
+    r.st = 'show'; r.sq++;
+    this.seats.forEach(s => { s.out = s.stack < this.settings.minBet; });
+    this.nextAt = now + 6500;
+    this.bacBotReactions(o);
+    this.dirty = true;
+  }
+  bacBotReactions(o) {
+    const pick = arr => arr[randInt(arr.length)];
+    const mb = this.settings.minBet;
+    this.seats.filter(s => s.bot && s.bac.inR && bacSum(s.bac.bets)).forEach((b, k) => {
+      let e = null;
+      if (b.bac.net >= mb * 5) { if (rnd() < 0.6) e = pick(['😎', '💸', '🔥']); }
+      else if (b.bac.net > 0) { if (rnd() < 0.2) e = pick(['😂', '👍']); }
+      else if (b.bac.net <= -mb * 3) { if (rnd() < 0.4) e = pick(['😭', '🤬', '😱']); }
+      else if (o.win === 'T') { if (rnd() < 0.3) e = '😱'; }
+      if (e && EMOJIS.includes(e)) setTimeout(() => this.emitReact(b, e), 700 + k * 450 + randInt(500));
+    });
+  }
+  hostCmd(cmd, arg) {
+    if (cmd === 'set' && this.status === 'lobby' && arg && typeof arg === 'object') {
+      const ok = { stack: [500, 1000, 2000, 5000, 10000, 50000], minBet: [10, 20, 50, 100, 200, 500], timer: [15, 20, 30, 0] };
+      for (const k of Object.keys(ok)) if (arg[k] !== undefined && ok[k].includes(+arg[k])) this.settings[k] = +arg[k];
+      this.seats.forEach(s => { s.stack = this.settings.stack; });
+      this.dirty = true;
+    } else if (cmd === 'addbot') {
+      return this.addBot(String(arg && arg.lv || 'normal'));
+    } else if (cmd === 'start' && this.status === 'lobby') {
+      if (!this.seats.some(s => s.online && !s.bot)) return '접속한 사람이 있어야 시작할 수 있어요';
+      this.seats.forEach(s => { s.stack = this.settings.stack; s.out = false; });
+      this.status = 'playing'; this.r = this.blankRound(this.r.sq + 1); this.r.hist = [];
+      this.statInit();
+      this.log(`바카라 시작 · 시작 칩 ${fmt(this.settings.stack)}, 최소 베팅 ${fmt(this.settings.minBet)}`);
+      this.startRound();
+    } else if (cmd === 'next' && this.status === 'playing' && (this.r.st === 'show' || this.r.st === 'idle')) {
+      this.nextAt = 0; this.startRound();
+    } else if (cmd === 'rebuy') {
+      let k = 0; this.seats.forEach(s => { if (s.stack < this.settings.minBet && !(this.live() && s.bac.inR)) { this.statBuy(s, this.settings.stack - s.stack); s.stack = this.settings.stack; s.out = false; k++; } });
+      if (k) { this.log(`칩이 떨어진 ${k}명 리바이 (${fmt(this.settings.stack)})`); this.dirty = true; }
+    } else if (cmd === 'lobby') {
+      this.rankLog();
+      this.status = 'lobby'; this.nextAt = 0;
+      this.r = this.blankRound(this.r.sq + 1); this.msg = '';
+      this.seats = this.seats.filter(s => s.online && !s.kicked);
+      this.seats.forEach(s => { this.resetBac(s); s.stack = this.settings.stack; s.out = false; });
+      this.log('대기실로 돌아왔어요'); this.dirty = true;
+    }
+    return '';
+  }
+  tick(now) {
+    this.commonTick(now);
+    const r = this.r;
+    if (this.status === 'playing') {
+      if ((r.st === 'show' || r.st === 'idle') && this.nextAt && now >= this.nextAt) { this.nextAt = 0; this.startRound(); }
+      else if (r.st === 'bet') {
+        for (const s of this.seats) if (s.bot && s.bac.inR && !s.bac.ok && now >= (s.bac.botAt || 0)) { const b = bacBotBets(this, s); if (bacSum(b)) { s.bac.bets = b; s.bac.ok = true; } else { s.bac.ok = true; s.bac.sit = true; } this.dirty = true; }
+        const waiting = this.seats.filter(s => s.bac.inR && !s.bac.ok && s.online && !s.kicked);
+        if (!waiting.length || (this.betEnd && now >= this.betEnd)) this.deal();
+      } else if (r.st === 'deal' && now >= this.stepAt) this.step(now);
+    }
+    if (this.dirty) { this.dirty = false; this.broadcast(); }
+  }
+  publicState() {
+    const r = this.r, now = Date.now(), o = r.o;
+    const pc = [], bc = [];
+    if (o) for (let k = 0; k < r.shown; k++) { const [side, j] = r.order[k]; (side === 'p' ? pc : bc).push(o[side][j]); }
+    const done = r.st === 'show' && o;
+    return {
+      game: 'bac', code: this.code, status: this.status, set: this.settings, msg: this.msg, rk: this.ranking(),
+      seats: this.seats.map(s => ({
+        id: s.id, n: s.name, s: s.stack, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '',
+        pg: s.pendGive || 0, ir: s.bac.inR ? 1 : 0, ok: s.bac.ok ? 1 : 0, sit: s.bac.sit ? 1 : 0, bets: s.bac.ok ? s.bac.bets : {}, last: s.bac.last, w: s.bac.net, res: s.bac.res
+      })),
+      h: {
+        no: r.no, sq: r.sq, st: r.st, pc, bc, pt: pc.length ? bacTot(pc) : -1, bt: bc.length ? bacTot(bc) : -1,
+        o: done ? { win: o.win, pt: o.pt, bt: o.bt, pp: o.pp ? 1 : 0, bp: o.bp ? 1 : 0, pn: o.pNat ? 1 : 0, bn: o.bNat ? 1 : 0 } : null,
+        line: r.line, hist: r.hist || [], tu: -1, tl: -1, tt: 0,
         bl: r.st === 'bet' && this.betEnd ? Math.max(0, this.betEnd - now) : -1,
         nx: this.nextAt ? Math.max(0, this.nextAt - now) : -1
       }
@@ -979,6 +1379,7 @@ function leaveCurrent(c) {
   c.code = null;
 }
 function enter(c, room, name) {
+  if (room.banned.has(c.pid)) { c.emit('nojoin', '방장이 내보낸 방이라 다시 들어갈 수 없어요'); return; }
   if (c.code && c.code !== room.code) leaveCurrent(c);
   c.code = room.code;
   room.socks.add(c);
@@ -990,6 +1391,7 @@ function enter(c, room, name) {
   } else if (room.seats.length < 8) {
     seat = room.newSeat(pid, name);
     room.seats.push(seat);
+    if (room.status === 'playing') room.statAdd(seat);
     room.log(`${name} 입장${room.status === 'playing' ? ' · 다음 핸드부터 참여' : ''}`);
   }
   if (!room.hostPid) room.hostPid = pid;
@@ -1009,7 +1411,7 @@ function handle(msg) {
   if (type === 'create') {
     const name = clean(msg.name, 10) || '방장';
     let code; do { code = Array.from({ length: 5 }, () => CODE_ABC[randInt(CODE_ABC.length)]).join(''); } while (rooms.has(code));
-    const room = msg.game === 'bj' ? new BJRoom(code) : new Room(code); rooms.set(code, room);
+    const room = msg.game === 'bj' ? new BJRoom(code) : msg.game === 'bac' ? new BacRoom(code) : new Room(code); rooms.set(code, room);
     room.hostPid = pid;
     room.log(`방이 만들어졌어요. 코드 ${code}`);
     for (const c of cs) enter(c, room, name);
@@ -1022,6 +1424,7 @@ function handle(msg) {
   } else if (type === 'act') {
     const room = roomOf(pid); if (!room || room.status !== 'playing') return;
     if (room.game === 'bj') { room.bjMsg(pid, msg); return; }
+    if (room.game === 'bac') { room.bacMsg(pid, msg); return; }
     const i = room.seats.findIndex(s => s.pid === pid);
     if (i < 0 || room.hand.tu !== i || msg.sq !== room.hand.sq) return;
     if (!room.act(i, String(msg.a), msg.x)) tell(pid, 'err', '지금은 그 액션을 할 수 없어요');
@@ -1055,7 +1458,26 @@ function handle(msg) {
     room.reveal(room.seatOf(pid)); room.tick(Date.now());
   } else if (type === 'host') {
     const room = roomOf(pid); if (!room || room.hostPid !== pid) return;
-    const err = room.hostCmd(String(msg.cmd), msg.arg);
+    const cmd = String(msg.cmd);
+    if (cmd === 'kick' || cmd === 'kickbot') {
+      const seat = room.seats.find(s => s.id === String(msg.arg && msg.arg.id || ''));
+      if (!seat || seat.pid === pid || seat.kicked) return;
+      room.kickSeat(seat);
+      if (!seat.bot) {
+        room.banned.add(seat.pid);
+        for (const c of [...clientsOf(seat.pid)]) if (c.code === room.code) { c.emit('kicked', { code: room.code }); leaveCurrent(c); }
+      }
+      room.tick(Date.now()); return;
+    }
+    if (cmd === 'give') {
+      const seat = room.seats.find(s => s.id === String(msg.arg && msg.arg.id || ''));
+      const amt = Math.floor(+(msg.arg && msg.arg.amt) || 0);
+      if (!seat || seat.kicked) return;
+      if (room.status !== 'playing') { tell(pid, 'err', '게임을 시작한 뒤에 칩을 줄 수 있어요'); return; }
+      if (amt < 1 || amt > 1000000) { tell(pid, 'err', '1 ~ 1,000,000 사이로 입력해 주세요'); return; }
+      room.giveChips(seat, amt); room.tick(Date.now()); return;
+    }
+    const err = room.hostCmd(cmd, msg.arg);
     if (err) tell(pid, 'err', err);
     room.tick(Date.now());
   } else if (type === 'leave') {
@@ -1123,4 +1545,4 @@ setInterval(() => {
 server.keepAliveTimeout = 65000;
 if (require.main === module) server.listen(PORT, () => console.log(`수완 종합게임 서버 실행 중: http://localhost:${PORT}`));
 
-module.exports = { BJRoom, bjTotal, basicStrategy, Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };
+module.exports = { BJRoom, BacRoom, bacPlay, bacReturn, bacNet, bjTotal, basicStrategy, Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };

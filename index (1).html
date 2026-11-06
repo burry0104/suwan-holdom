@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1412">
 <title>수완 종합게임 - 친구들과 하는 홀덤 · 블랙잭</title>
-<meta name="description" content="수완 종합게임. 방을 만들고 코드나 링크로 친구를 초대해서 바로 즐기는 무료 텍사스 홀덤과 블랙잭. 가입 없이, 실시간 채팅과 이모티콘, AI 플레이어까지. 실제 돈 없이 칩으로만 즐겨요.">
+<meta name="description" content="수완 종합게임. 방을 만들고 코드나 링크로 친구를 초대해서 바로 즐기는 무료 텍사스 홀덤, 블랙잭, 바카라. 가입 없이, 실시간 채팅과 이모티콘, AI 플레이어까지. 실제 돈 없이 칩으로만 즐겨요.">
 <meta name="keywords" content="수완 종합게임, 수완, 홀덤, 블랙잭, 텍사스 홀덤, 무료 포커, 친구 게임">
 <meta property="og:type" content="website">
 <meta property="og:title" content="수완 종합게임">
@@ -49,7 +49,8 @@ button{cursor:pointer;touch-action:manipulation}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--danger);flex:0 0 auto;transition:background .3s}
 .dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)}
 .btn{white-space:nowrap;border:1px solid var(--line);background:var(--panel-2);border-radius:11px;padding:8px 14px;font-weight:500;transition:transform .08s,background .15s,opacity .15s;user-select:none;-webkit-user-select:none}
-.btn:hover:not(:disabled){background:#22362f}
+.btn:not(.brass):not(.ivory):hover:not(:disabled){background:#22362f}
+.btn.brass:hover:not(:disabled),.btn.ivory:hover:not(:disabled){filter:brightness(1.07)}
 .btn:active:not(:disabled){transform:scale(.96)}
 .btn:disabled{opacity:.38;cursor:not-allowed}
 .btn.brass{background:linear-gradient(180deg,#e8bb62,var(--brass));color:var(--brass-ink);border-color:transparent;font-weight:600}
@@ -224,12 +225,111 @@ button{cursor:pointer;touch-action:manipulation}
 .secbox h3{margin:0;font-size:15px;font-weight:600}
 .secbox .row{justify-content:flex-end}
 /* game picker */
-.gpick{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gpick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .gopt{border:1px solid var(--line);background:var(--room);border-radius:14px;padding:12px 12px 11px;text-align:left;display:flex;flex-direction:column;gap:1px;transition:border-color .15s,background .15s}
 .gopt .gi{font-size:22px;line-height:1.2}
 .gopt b{font-family:var(--f-display);font-weight:400;font-size:17px;color:var(--ivory)}
 .gopt span:last-child{font-size:11.5px;color:var(--muted)}
 .gopt[aria-pressed="true"]{border-color:var(--brass);background:var(--brass-soft);box-shadow:0 0 0 2px rgba(220,170,76,.22)}
+@media (max-width:440px){.gopt{padding:10px 8px 9px}.gopt b{font-size:15px}.gopt span:last-child{font-size:10.5px}}
+/* chips & amount input */
+.chips{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.chip{--cc:#e9e2cf;width:44px;height:44px;border-radius:50%;border:0;padding:0;font-family:var(--f-num);font-weight:700;font-size:14px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);
+  background:radial-gradient(circle,var(--cc) 0 52%,transparent 53%),repeating-conic-gradient(var(--cc) 0 30deg,#f7f0de 30deg 45deg);box-shadow:inset 0 0 0 2px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.45);transition:transform .1s,box-shadow .15s}
+.chip[style*="#e9e2cf"]{color:var(--card-ink);text-shadow:none}
+.chip:active:not(:disabled){transform:scale(.9)}
+.chip:disabled{opacity:.3;cursor:not-allowed}
+.chip.sel{box-shadow:0 0 0 3px var(--brass),0 0 14px rgba(220,170,76,.6);transform:translateY(-3px)}
+.amtrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.amtrow label{font-size:12px;color:var(--muted)}
+.amtin{width:130px;flex:0 1 130px;font-family:var(--f-num);font-size:22px;color:var(--brass);text-align:right;padding:6px 10px}
+.hint{font-size:11.5px;color:var(--muted)}
+/* modals */
+.modal{position:fixed;inset:0;z-index:70;display:flex;padding:16px;background:rgba(3,10,8,.62);overflow-y:auto}
+.mbox{margin:auto;width:min(100%,420px);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 60px rgba(0,0,0,.6);animation:pop .18s ease-out}
+.mbox h3{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;font-family:var(--f-display);font-weight:400;font-size:21px;color:var(--ivory)}
+.mbox h3 small{flex:1 1 100%;font-family:var(--f-body);font-size:12px;color:var(--muted)}
+.mbox .sec{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;background:var(--room-2);border:1px solid var(--line)}
+.mbox .sec h4{margin:0;font-size:13px;color:var(--brass);font-weight:600}
+.mbox .row{justify-content:flex-end}
+.rk-t{width:100%;border-collapse:collapse;font-size:13px}
+.rk-t th{font-size:11px;color:var(--muted);font-weight:500;text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)}
+.rk-t th:nth-child(-n+2){text-align:left}
+.rk-t td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+.rk-t td:nth-child(1){text-align:left;width:34px;font-size:16px}
+.rk-t td:nth-child(2){text-align:left;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk-t td.pos{color:var(--ok);font-family:var(--f-num);font-size:16px}.rk-t td.neg{color:var(--danger);font-family:var(--f-num);font-size:16px}
+.rk-t tr.me td{background:var(--brass-soft)}
+.rk-t tr.gone td{opacity:.55}
+.rk-empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 0}
+.table.host .seat .av,.table.host .seat .plate{cursor:pointer}
+/* baccarat */
+.table.bac .stamp{top:64%;font-size:clamp(12px,2.4vw,20px)}
+.bacz{position:absolute;left:50%;top:25%;transform:translate(-50%,-50%);display:flex;gap:10px;align-items:flex-start;z-index:2}
+.bach{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 8px 8px;border-radius:14px;background:rgba(0,0,0,.18);border:1.5px solid transparent;min-width:96px;transition:border-color .2s,box-shadow .2s}
+.bach .lbl{font-size:11px;font-weight:700;letter-spacing:.14em}
+.bach.p .lbl{color:#8fb8ff}.bach.b .lbl{color:#ff9a8a}
+.bach.won.p{border-color:#6fa0ff;box-shadow:0 0 18px rgba(111,160,255,.45)}
+.bach.won.b{border-color:#ff7c6a;box-shadow:0 0 18px rgba(255,124,106,.45)}
+.bach.tie{border-color:var(--ok);box-shadow:0 0 18px rgba(111,207,152,.4)}
+.bach .cs{display:flex;align-items:center;gap:3px;min-height:calc(var(--bw,46px)*1.4)}
+.bach .cs .card{--w:var(--bw,46px)}
+.bach .cs .card.side{transform:rotate(90deg);margin:0 calc(var(--bw,46px)*.2)}
+.bach .cs .card.side.flip{animation:flipside .4s ease-out both}
+@keyframes flipside{from{transform:rotate(90deg) perspective(400px) rotateY(95deg);filter:brightness(.6)}to{transform:rotate(90deg)}}
+.road{display:flex;gap:3px;flex-wrap:nowrap;justify-content:flex-end;padding:4px 7px;border-radius:999px;background:rgba(0,0,0,.28);max-width:100%;overflow:hidden}
+.road i{flex:0 0 auto;width:15px;height:15px;border-radius:50%;display:block;position:relative;font-style:normal;font-size:9px;line-height:15px;text-align:center;color:#fff;font-family:var(--f-num);font-weight:700}
+.road i.P{background:#3f7fd0}.road i.B{background:#c4382a}.road i.T{background:#2f9a62}
+.road i.pp::before,.road i.bp::after{content:"";position:absolute;width:4px;height:4px;border-radius:50%;border:1px solid #fff}
+.road i.pp::before{left:-1px;bottom:-1px;background:#3f7fd0}.road i.bp::after{right:-1px;top:-1px;background:#c4382a}
+.roadwrap{display:flex;flex-direction:column;align-items:center;gap:3px}
+.roadwrap .rc{font-size:10.5px;color:var(--muted);letter-spacing:.04em}
+.bacboard{flex:1 1 100%;display:flex;flex-direction:column;gap:6px}
+.bacboard .r{display:grid;gap:6px}
+.bacboard .r3{grid-template-columns:repeat(3,minmax(0,1fr))}.bacboard .r2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.spot{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:7px 4px 6px;border-radius:12px;border:1.5px solid var(--line);background:var(--room-2);cursor:pointer;user-select:none;-webkit-user-select:none;min-height:54px;transition:background .15s,transform .08s}
+.spot:active{transform:scale(.97)}
+.spot b{font-size:13px;font-weight:600;color:var(--ivory)}
+.spot i{font-style:normal;font-size:10.5px;color:var(--muted)}
+.spot .amt{font-family:var(--f-num);font-size:16px;color:var(--brass);min-height:18px;line-height:18px}
+.spot.main{min-height:68px}
+.spot.main b{font-family:var(--f-display);font-weight:400;font-size:19px;letter-spacing:.06em}
+.spot.p{border-color:rgba(111,160,255,.55);background:rgba(63,127,208,.16)}.spot.p b{color:#a9c8ff}
+.spot.b{border-color:rgba(255,124,106,.55);background:rgba(196,56,42,.16)}.spot.b b{color:#ffb3a7}
+.spot.t{border-color:rgba(111,207,152,.5);background:rgba(47,154,98,.14)}
+.spot.has{box-shadow:inset 0 0 0 1.5px var(--brass)}
+.spot .clr{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,.45);color:var(--ivory);font-size:11px;line-height:20px;padding:0}
+.spot.won{box-shadow:inset 0 0 0 2px var(--ok)}.spot.lost{opacity:.55}
+.bacfoot{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.bacfoot .tot2{font-size:13px;color:var(--muted)}.bacfoot .tot2 b{font-family:var(--f-num);font-size:18px;color:var(--brass);font-weight:700}
+.bacfoot .btns{display:flex;gap:6px;flex-wrap:wrap}
+.mybets{display:flex;flex-wrap:wrap;gap:5px}
+.mybets span{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--room-2);border:1px solid var(--line)}
+.mybets span.w{border-color:var(--ok);color:var(--ok)}.mybets span.l{opacity:.6}
+.actrow.five{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (min-width:700px){.actrow.five{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media (max-width:440px){.bacz{gap:6px;--bw:31px}.bach{min-width:78px;padding:4px 5px 6px}
+  #app:has(#room:not([hidden])) .brand{display:none}
+  .top .btn.icon{padding:4px 6px;font-size:14px}.top .btn.sm{padding:5px 8px;font-size:12.5px}.chip-code{font-size:14px;letter-spacing:.08em}}
+@media (max-width:699px){
+  .dock{max-height:58vh;overflow-y:auto;overscroll-behavior:contain}
+  .bacboard{gap:5px}.bacboard .r{gap:5px}.spot{min-height:40px;padding:4px 3px}.spot b{font-size:12px}.spot i{font-size:9.5px}.spot .amt{font-size:13px;min-height:15px;line-height:15px}
+  .spot.main{min-height:50px}.spot.main b{font-size:16px}
+  .chips{gap:5px}.chip{width:36px;height:36px;font-size:12px}
+  .dock .hint{display:none}
+  .amtin{width:100px;flex-basis:100px;font-size:19px;padding:5px 8px}
+  .table.bac .stamp{display:none}
+  .bacz{top:21%}
+  .table.bac #centerBac{top:55%!important;width:64%}
+  #centerBac .result .rk{font-size:15px}
+  .roadwrap .rc{display:none}
+  #centerBac .result,#centerBJ .result{padding:4px 10px 6px}
+  #centerBac .result .rk,#centerBJ .result .rk{font-size:17px}
+  .road i{width:13px;height:13px;line-height:13px;font-size:8px}
+  .dock .bacfoot{position:sticky;bottom:-10px;margin:0 -10px -10px;padding:8px 10px 10px;background:var(--panel);border-top:1px solid var(--line);border-radius:0 0 18px 18px;z-index:3}
+  .bacfoot .btns{flex-wrap:nowrap}.bacfoot .btn.sm{padding:6px 9px}
+  #bacChips{flex-wrap:nowrap}#bacAmt{width:70px;flex:0 0 70px;font-size:16px;padding:5px 7px}
+}
 .gametag{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--brass);border:1px solid rgba(220,170,76,.35);border-radius:999px;padding:1px 9px}
 /* blackjack */
 .table.bj .stamp{top:36%;font-size:clamp(13px,2.6vw,22px)}
@@ -295,6 +395,7 @@ button{cursor:pointer;touch-action:manipulation}
 .raiserow input[type=range]{flex:1 1 140px;accent-color:var(--brass);min-width:0}
 .presets{display:flex;gap:6px;flex-wrap:wrap}
 .waitmsg{flex:1 1 220px;color:var(--muted);font-size:13px}
+.actions .waitmsg{flex:0 0 auto}
 .waitmsg b{color:var(--ivory);font-weight:500}
 .timer{font-family:var(--f-num);color:var(--brass);font-size:15px}
 .myturn{display:flex;align-items:center;gap:8px;font-family:var(--f-display);color:var(--brass);font-size:15px}
@@ -361,6 +462,7 @@ button{cursor:pointer;touch-action:manipulation}
     <div class="brand">수완 <b>종합게임</b></div>
     <span id="codeChip" class="chip-code" hidden role="button" tabindex="0" title="초대 링크 복사"><span class="dot" id="connDot"></span><span id="codeTxt"></span></span>
     <div class="spacer"></div>
+    <button class="btn icon ghost" id="rankBtn" type="button" title="순위" aria-label="순위" hidden>🏆</button>
     <button class="secbtn" id="secBtn" type="button" aria-label="설정" hidden>⚙︎</button>
     <button class="btn icon ghost" id="sndBtn" type="button" title="효과음 켜기/끄기" aria-label="효과음">🔊</button>
     <button class="btn sm" id="chatBtn" hidden>채팅<span id="unread" class="badge" hidden></span></button>
@@ -372,7 +474,7 @@ button{cursor:pointer;touch-action:manipulation}
       <div class="hero">
         <div class="fan" id="fan"></div>
         <h1>수완 종합게임</h1>
-        <p>게임을 고르고 방을 만든 뒤 링크나 코드를 보내면 친구들이 바로 들어와요. 자리가 비면 AI를 앉혀서 같이 할 수 있어요. 최대 8명.</p>
+        <p>홀덤 · 블랙잭 · 바카라. 게임을 고르고 방을 만든 뒤 링크나 코드를 보내면 친구들이 바로 들어와요. 자리가 비면 AI를 앉혀서 같이 할 수 있어요.</p>
       </div>
       <div id="resumeBox" hidden></div>
       <form class="form" id="homeForm" autocomplete="off">
@@ -384,6 +486,7 @@ button{cursor:pointer;touch-action:manipulation}
           <div class="gpick" role="group" aria-label="게임 고르기">
             <button type="button" class="gopt" data-game="holdem" aria-pressed="true"><span class="gi">♠️</span><b>텍사스 홀덤</b><span>노리밋 · 2~8명</span></button>
             <button type="button" class="gopt" data-game="bj" aria-pressed="false"><span class="gi">🂡</span><b>블랙잭</b><span>딜러와 대결 · 1~8명</span></button>
+            <button type="button" class="gopt" data-game="bac" aria-pressed="false"><span class="gi">🀄</span><b>바카라</b><span>플레이어 vs 뱅커</span></button>
           </div>
         </div>
         <button class="btn brass" type="button" id="createBtn" style="padding:12px">홀덤 방 만들기</button>
@@ -392,7 +495,7 @@ button{cursor:pointer;touch-action:manipulation}
           <input class="input code" id="codeIn" maxlength="5" placeholder="ABCDE" autocapitalize="characters">
           <button class="btn ivory" type="submit" id="joinBtn">입장</button>
         </div>
-        <div class="note"><b>친구 부르는 법</b> · 방을 만든 뒤 <b>초대 링크 복사</b>를 눌러 카톡으로 보내면, 친구는 링크를 열고 닉네임만 적으면 바로 같은 방에 들어와요. 혼자라면 방 안에서 <b>AI 추가</b>를 눌러 AI랑 칠 수 있어요.<br><span style="opacity:.6">버전 11/06-A · 홀덤 · 블랙잭</span></div>
+        <div class="note"><b>친구 부르는 법</b> · 방을 만든 뒤 <b>초대 링크 복사</b>를 눌러 카톡으로 보내면, 친구는 링크를 열고 닉네임만 적으면 바로 같은 방에 들어와요. 혼자라면 방 안에서 <b>AI 추가</b>를 눌러 AI랑 칠 수 있어요.<br><span style="opacity:.6">버전 11/07-A · 홀덤 · 블랙잭</span></div>
       </form>
     </div>
   </main>
@@ -414,6 +517,11 @@ button{cursor:pointer;touch-action:manipulation}
             <div class="center" id="centerLobby" hidden></div>
             <div class="dealer" id="dealer" hidden><span class="dlbl">DEALER</span><div class="dcards" id="dcards"></div><span class="tot" id="dtot"></span></div>
             <div class="center" id="centerBJ" hidden style="top:55%"></div>
+            <div class="bacz" id="bacz" hidden>
+              <div class="bach p" id="bacP"><span class="lbl">PLAYER</span><div class="cs" id="bacPc"></div><span class="tot" id="bacPt"></span></div>
+              <div class="bach b" id="bacB"><span class="lbl">BANKER</span><div class="cs" id="bacBc"></div><span class="tot" id="bacBt"></span></div>
+            </div>
+            <div class="center" id="centerBac" hidden style="top:60%"></div>
           </div>
         </div>
         <button class="emobtn" id="emoBtn" type="button" aria-label="이모티콘 반응" hidden>😀</button>
@@ -453,6 +561,31 @@ button{cursor:pointer;touch-action:manipulation}
       <p class="q">위 내용을 충분히 이해했으며, 이를 준수하는 데 동의합니까?</p>
       <p class="no" id="gateNo" hidden>동의해야 입장할 수 있어요.</p>
       <div class="btns"><button class="btn ghost" type="button" id="gateNoBtn">아니요</button><button class="btn brass" type="button" id="gateYes">예, 동의합니다</button></div>
+    </div>
+  </div>
+  <div class="modal" id="rankModal" hidden role="dialog" aria-modal="true" aria-labelledby="rankTitle">
+    <div class="mbox">
+      <h3 id="rankTitle">🏆 순위 <small>게임을 시작한 뒤부터 · 받은 칩은 수익에서 빼고 계산</small></h3>
+      <div id="rankList"></div>
+      <div class="row"><button class="btn sm" type="button" id="rankClose">닫기</button></div>
+    </div>
+  </div>
+  <div class="modal" id="seatModal" hidden role="dialog" aria-modal="true" aria-labelledby="seatTitle">
+    <div class="mbox">
+      <h3 id="seatTitle"></h3>
+      <div class="sec" id="giveSec">
+        <h4>칩 주기</h4>
+        <div class="amtrow"><input class="input amtin num" id="giveAmt" inputmode="numeric" autocomplete="off" placeholder="0" aria-label="줄 칩 수"><button class="btn sm ghost" type="button" id="giveClear">지우기</button></div>
+        <div class="chips" id="giveChips"></div>
+        <div class="hint" id="giveHint">칩을 누르면 더해지고, 숫자를 직접 적어도 돼요. 판이 진행 중이면 그 판이 끝난 뒤에 들어가요.</div>
+        <button class="btn brass" type="button" id="giveBtn">칩 주기</button>
+      </div>
+      <div class="sec" id="kickSec">
+        <h4>추방</h4>
+        <div class="hint">추방하면 바로 방에서 나가고, 이 방에는 다시 들어올 수 없어요. 진행 중인 판은 폴드(블랙잭은 스탠드)로 처리돼요.</div>
+        <button class="btn warn" type="button" id="kickBtn">추방하기</button>
+      </div>
+      <div class="row"><button class="btn sm" type="button" id="seatClose">닫기</button></div>
     </div>
   </div>
   <div class="secmodal" id="secModal" hidden>
@@ -531,7 +664,8 @@ syncSndBtn();
 /* ---------- 상태 & 연결 ---------- */
 let PID=store.get('hd-pid',true);if(!PID){PID=rid(16);store.set('hd-pid',PID,true)}
 const S={name:store.get('hd-name')||'',code:store.get('hd-room',true)||'',view:null,prev:null,conn:false,unread:0,chatOpen:false,bubbles:{},
-  botLv:store.get('hd-botlv')||'normal',game:store.get('hd-game')==='bj'?'bj':'holdem',bjBet:0,bjBetNo:-1,sqSeen:-1,turnEnd:0,turnTotal:0,nextEnd:0,pendSq:-1,actAt:0,raise:0,raiseSq:-1,dockSig:'',leaveArm:0,lobbyArm:0,resKey:''};
+  botLv:store.get('hd-botlv')||'normal',game:['bj','bac'].includes(store.get('hd-game'))?store.get('hd-game'):'holdem',bac:{},bacChip:0,bacNo:-1,giveFor:'',kickArm:0,bjBet:0,bjBetNo:-1,sqSeen:-1,turnEnd:0,turnTotal:0,nextEnd:0,pendSq:-1,actAt:0,raise:0,raiseSq:-1,dockSig:'',leaveArm:0,lobbyArm:0,resKey:''};
+S.want=S.code;
 const net={es:null,handlers:{},
   on(ev,fn){this.handlers[ev]=fn},
   connect(){
@@ -539,7 +673,7 @@ const net={es:null,handlers:{},
     const es=this.es=new EventSource('/events?pid='+encodeURIComponent(PID));
     es.onopen=()=>{S.conn=true;renderTop();if(S.code)net.send('join',{code:S.code,name:S.name});if(!S.view)render()};
     es.onerror=()=>{S.conn=false;renderTop()};
-    for(const ev of ['state','chat','chatlog','nojoin','err','react','shown','secret'])es.addEventListener(ev,e=>{let d;try{d=JSON.parse(e.data)}catch(_){return}const fn=net.handlers[ev];if(fn)fn(d)});
+    for(const ev of ['state','chat','chatlog','nojoin','err','react','shown','secret','kicked'])es.addEventListener(ev,e=>{let d;try{d=JSON.parse(e.data)}catch(_){return}const fn=net.handlers[ev];if(fn)fn(d)});
   },
   get connected(){return !!this.es&&this.es.readyState===1},
   send(type,data){
@@ -552,6 +686,8 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 setInterval(()=>{if(S.code&&net.connected)net.send('ping')},240000);
 
 net.on('state',v=>{
+  // 방을 나간 직후 늦게 도착한 화면 정보는 무시
+  if(!S.want||(S.want!=='*'&&v.code!==S.want))return;S.want=v.code;
   const prev=S.view,first=!prev;
   S.prev=prev;S.view=v;S.code=v.code;
   store.set('hd-room',v.code,true);store.set('hd-last',{code:v.code,pid:PID,at:Date.now()});
@@ -562,7 +698,7 @@ net.on('state',v=>{
   S.betEnd=v.h.bl>=0?Date.now()+v.h.bl:0;
   if(first||!prev||prev.game!==v.game){for(const[id,o]of seatEls){o.root.remove();o.bet.remove()}seatEls.clear()}
   S.nextEnd=v.h.nx>=0?Date.now()+v.h.nx:0;
-  if(!first&&prev.game===v.game)(v.game==='bj'?bjSounds:sounds)(prev,v);
+  if(!first&&prev.game===v.game)(v.game==='bj'?bjSounds:v.game==='bac'?bacSounds:sounds)(prev,v);
   render();
 });
 net.on('chatlog',list=>{$('#chatList').innerHTML='';(list||[]).forEach(m=>addChatItem(m,true))});
@@ -592,8 +728,9 @@ net.on('secret',r=>{
   $('#secModal').hidden=true;$('#secPw').value='';
   toast(r.on?'🍀 켜짐':'꺼짐');
 });
-net.on('nojoin',msg=>{toast(msg);store.del('hd-room',true);S.code='';S.view=null;showScreen('home');renderHome()});
-net.on('err',msg=>{toast(msg);S.pendSq=-1;S.dockSig='';if(S.view&&S.view.game==='bj')renderBJDock(true);else renderDock(true)});
+net.on('nojoin',msg=>{S.want='';toast(msg);store.del('hd-room',true);S.code='';S.view=null;showScreen('home');renderHome()});
+net.on('err',msg=>{toast(msg);S.pendSq=-1;S.dockSig='';if(!S.view)return;if(S.view.game==='bj')renderBJDock(true);else if(S.view.game==='bac')renderBacDock(true);else renderDock(true)});
+net.on('kicked',()=>{S.want='';closeModals();store.del('hd-room',true);store.del('hd-last');S.code='';resetRoomUI();history.replaceState(null,'',location.pathname);showScreen('home');renderHome();renderTable();toast('방장이 방에서 내보냈어요');});
 
 function myId(){const v=S.view;return v&&v.me>=0?v.seats[v.me].id:''}
 function sendAction(a,x){const v=S.view;if(!v||v.me<0||v.h.tu!==v.me||S.pendSq===v.h.sq)return;S.pendSq=v.h.sq;S.actAt=Date.now();net.send('act',{a,x:x||0,sq:v.h.sq});SND.play(a==='fold'?'fold':(a==='check'?'deal':'chip'));renderDock(true)}
@@ -661,6 +798,7 @@ function showScreen(name){
 }
 function renderTop(){
   $('#codeTxt').textContent=S.code||'';
+  $('#rankBtn').hidden=!S.view;
   $('#secBtn').hidden=!S.view;$('#secBtn').classList.toggle('on',!!(S.view&&S.view.lk));
   $('#connDot').classList.toggle('on',S.conn);
   const u=$('#unread');u.hidden=!S.unread;u.textContent=S.unread>9?'9+':S.unread;
@@ -671,7 +809,8 @@ function updateTitle(){
   const v=S.view;const myTurn=v&&v.me>=0&&v.h.tu===v.me&&(v.game==='bj'?v.h.st==='play':BETTING.has(v.h.st));
   document.title=(myTurn&&document.hidden)?'🔔 내 차례! · 수완 종합게임':'수완 종합게임';
 }
-function render(){renderTop();if(S.view&&S.view.game==='bj'){renderBJTable();renderBJDock()}else{renderTable();renderDock()}updateTitle()}
+function render(){renderTop();const g=S.view&&S.view.game;if(g==='bj'){renderBJTable();renderBJDock()}else if(g==='bac'){renderBacTable();renderBacDock()}else{renderTable();renderDock()}
+  $('#table').classList.toggle('host',!!(S.view&&S.view.isHost));if(!$('#rankModal').hidden)renderRank();if(!$('#seatModal').hidden)syncSeatModal();updateTitle()}
 
 function seatGeom(k,n){
   const ang=Math.PI/2+k*2*Math.PI/Math.max(n,2);const c=Math.cos(ang),s=Math.sin(ang);
@@ -684,10 +823,12 @@ function makeSeat(){
   const bet=document.createElement('div');bet.className='bet';bet.innerHTML='<span class="chipico"></span><span class="amt"></span>';
   const o={root,bet,bub:root.querySelector('.bub'),hc:root.querySelector('.hc'),av:root.querySelector('.av'),ini:root.querySelector('.ini'),ring:root.querySelector('svg'),nm:root.querySelector('.nm'),stk:root.querySelector('.stk'),tg:root.querySelector('.tg'),amt:bet.querySelector('.amt'),wonKey:''};
   const layer=$('#layer');layer.appendChild(bet);layer.appendChild(root);
+  const open=e=>{const v=S.view;if(!v||!v.isHost)return;const s=v.seats[+root.dataset.i];if(!s)return;e.stopPropagation();openSeatMenu(s.id)};
+  root.querySelector('.av').addEventListener('click',open);root.querySelector('.plate').addEventListener('click',open);
   return o;
 }
 function hiSet(v){const r=v.h.res;return v.h.st==='show'&&r&&r.kind==='show'?new Set(r.hi||[]):null}
-function renderSeatsOnly(){if(S.view)(S.view.game==='bj'?renderBJSeats:renderSeats)(S.view)}
+function renderSeatsOnly(){if(S.view)(S.view.game==='bj'?renderBJSeats:S.view.game==='bac'?renderBacSeats:renderSeats)(S.view)}
 function renderSeats(v){
   const n=v.seats.length,myI=v.me,base=myI<0?0:myI,h=v.h,now=Date.now(),lobby=v.status==='lobby';
   const ids=new Set(v.seats.map(s=>s.id));
@@ -740,7 +881,7 @@ function renderSeats(v){
 function renderTable(){
   const v=S.view;
   const cp=$('#centerPlay'),cl=$('#centerLobby');
-  $('#dealer').hidden=true;$('#centerBJ').hidden=true;$('#stamp').textContent="NO LIMIT HOLD'EM";$('#table').classList.remove('bj');
+  $('#dealer').hidden=true;$('#centerBJ').hidden=true;$('#bacz').hidden=true;$('#centerBac').hidden=true;$('#stamp').textContent="NO LIMIT HOLD'EM";$('#table').classList.remove('bj','bac');
   $('#emoBtn').hidden=!v;
   if(!v){
     for(const[id,o]of seatEls){o.root.remove();o.bet.remove()}seatEls.clear();$('#dbtn').hidden=true;
@@ -821,7 +962,7 @@ function revealHTML(v){
     return `<div class="w"><div class="wn">👑 ${esc(w.n)}${w.id===meId?' <small>(나)</small>':''}</div>${inner}<div class="amt">+${fmt(w.w||share)}</div></div>`;
   };
   const side=r.pots.slice(1).filter(p=>!p.solo).map(p=>p.split?`${esc(p.name)} 무승부 · ${p.names.map(esc).join(', ')} 나눔`:`${esc(p.name)} · ${esc(p.names[0])} <b>+${fmt(p.amt)}</b>`).join('<br>');
-  const sub=r.kind==='fold'?'모두 폴드':(main.split?`${fmt(main.amt)}을 ${winners.length}명이 나눠 가져요`:'');
+  const sub=r.kind==='fold'?'모두 폴드':(main.split?`${fmt(main.amt)}을 ${winners.length}명이 나눠 가져요${main.note?'<br><b style="color:var(--brass)">'+esc(main.note)+'</b>':''}`:'');
   return `<div class="rv${main.split?' split':''}${many?' many':''}" role="dialog" aria-label="핸드 결과"><div class="rk">${title}</div>${sub?`<div class="foot">${sub}</div>`:''}<div class="ws">${winners.map(block).join('')}</div><div class="foot">${side?side+'<br>':''}<span class="nx"></span> · 화면을 누르면 닫혀요</div></div>`;
 }
 function renderReveal(v){
@@ -838,7 +979,7 @@ function resultHTML(v){
   let rk,rd,rs;
   if(main.split){
     rk='무승부!';
-    rd=`${main.names.map(esc).join(' · ')} — ${esc(main.hn)}`;
+    rd=`${main.names.map(esc).join(' · ')} — ${esc(main.hn)}${main.note?`<br><span style="color:var(--brass);font-size:12px">${esc(main.note)}</span>`:''}`;
     rs=`${r.pots.length>1?'메인 팟 ':''}${fmt(main.amt)}을 ${main.names.length}명이 나눠 가져요 (각 <b>+${fmt(main.shares[main.shares.length-1])}</b>${main.shares[0]!==main.shares[main.shares.length-1]?', 남는 1칩은 딜러 왼쪽부터':''})`;
   }else{
     rk=`${esc(main.names[0])} 승리`;
@@ -912,11 +1053,11 @@ function renderDock(force){
           <button class="btn brass" data-act="raise" id="raiseBtn"${canRaise?'':' disabled'}>${canRaise?rLbl:'레이즈 불가'}</button>
         </div>
         ${canRaise&&minT<maxT?`<div class="raiserow">
-          <button class="btn sm" data-step="-1" aria-label="줄이기">−</button>
           <input type="range" id="raiseRange" min="${minT}" max="${maxT}" step="1" value="${S.raise}" aria-label="베팅 금액">
-          <button class="btn sm" data-step="1" aria-label="늘리기">+</button>
-          <div class="presets"><button class="btn sm" data-pre="min">최소</button><button class="btn sm" data-pre="half">½팟</button><button class="btn sm" data-pre="pot">팟</button><button class="btn sm" data-pre="all">올인</button></div>
-        </div>`:''}
+        </div>
+        <div class="amtrow"><label for="hrAmt">금액</label><input class="input amtin num" id="hrAmt" inputmode="numeric" autocomplete="off" value="${S.raise}" aria-label="레이즈 금액 입력">
+          <div class="presets"><button class="btn sm" data-pre="min">최소</button><button class="btn sm" data-pre="half">½팟</button><button class="btn sm" data-pre="pot">팟</button><button class="btn sm" data-pre="all">올인</button></div></div>
+        <div class="chips">${chipsHTML('radd',maxT-minT)}</div>`:''}
       </div>`;
     }else{
       let w='';
@@ -939,7 +1080,7 @@ function renderDock(force){
         <button class="btn sm ghost${armed?' warn':''}" id="lobbyBtn">${armed?'정말 게임 끝내기':'게임 끝내고 대기실로'}</button></div>`;
     }
   }
-  dock.innerHTML=html;bindDock();tick();
+  setDock(html);bindDock();tick();
 }
 function bindDock(){
   const v=S.view;const on=(id,fn)=>{const el=document.getElementById(id);if(el)el.onclick=fn};
@@ -947,16 +1088,18 @@ function bindDock(){
   on('revealBtn',()=>{net.send('reveal');const b=$('#revealBtn');if(b)b.disabled=true});
   on('addBot',()=>hostCmd('addbot',{lv:S.botLv}));on('addBot2',()=>hostCmd('addbot',{lv:S.botLv}));
   const bl=$('#botLv');if(bl)bl.onchange=()=>{S.botLv=bl.value;store.set('hd-botlv',S.botLv)};
-  document.querySelectorAll('#dock [data-kick]').forEach(b=>b.onclick=()=>hostCmd('kickbot',{id:b.dataset.kick}));on('nextBtn',()=>hostCmd('next'));on('rebuyBtn',()=>hostCmd('rebuy'));on('lobbyBtn2',()=>hostCmd('lobby'));
+  document.querySelectorAll('#dock [data-kick]').forEach(b=>b.onclick=()=>hostCmd('kick',{id:b.dataset.kick}));on('nextBtn',()=>hostCmd('next'));on('rebuyBtn',()=>hostCmd('rebuy'));on('lobbyBtn2',()=>hostCmd('lobby'));
   on('lobbyBtn',()=>{if(S.lobbyArm>Date.now()){S.lobbyArm=0;hostCmd('lobby')}else{S.lobbyArm=Date.now()+3000;renderDock(true);setTimeout(()=>renderDock(true),3100)}});
   const ss=$('#setStack');if(ss)ss.onchange=()=>hostCmd('set',{stack:+ss.value});
   const sb=$('#setBlind');if(sb)sb.onchange=()=>{const[a,b]=sb.value.split('/').map(Number);hostCmd('set',{sb:a,bb:b})};
   const st=$('#setTimer');if(st)st.onchange=()=>hostCmd('set',{timer:+st.value});
-  document.querySelectorAll('#dock [data-act]').forEach(b=>b.onclick=()=>{const a=b.dataset.act;sendAction(a,a==='raise'?S.raise:0)});
-  const rr=$('#raiseRange');
-  const upd=()=>{const me=v.seats[v.me],maxT=me.b+me.s;const rb=$('#raiseBtn');if(rb)rb.textContent=(v.h.cb===0?'벳 ':'레이즈 ')+fmt(S.raise)+(S.raise>=maxT?' (올인)':'');if(rr)rr.value=S.raise};
+  const rr=$('#raiseRange'),hi=$('#hrAmt');
+  const clampR=()=>{if(rr)S.raise=Math.max(+rr.min,Math.min(+rr.max,S.raise||+rr.min))};
+  document.querySelectorAll('#dock [data-act]').forEach(b=>b.onclick=()=>{const a=b.dataset.act;if(a==='raise')clampR();sendAction(a,a==='raise'?S.raise:0)});
+  const upd=(fromInput)=>{const me=v.seats[v.me],maxT=me.b+me.s;const rb=$('#raiseBtn');if(rb&&!rb.disabled)rb.textContent=(v.h.cb===0?'벳 ':'레이즈 ')+fmt(S.raise)+(S.raise>=maxT?' (올인)':'');if(rr)rr.value=S.raise;if(hi&&!fromInput)hi.value=S.raise};
   if(rr)rr.oninput=()=>{S.raise=+rr.value;upd()};
-  document.querySelectorAll('#dock [data-step]').forEach(b=>b.onclick=()=>{if(!rr)return;S.raise=Math.max(+rr.min,Math.min(+rr.max,S.raise+v.set.bb*(+b.dataset.step)));upd()});
+  if(hi){hi.oninput=()=>{const n=parseInt(hi.value.replace(/[^0-9]/g,''),10)||0;hi.value=n?String(n):'';S.raise=Math.min(+rr.max,n);upd(true)};hi.onblur=()=>{clampR();upd()};hi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();clampR();upd();const rb=$('#raiseBtn');if(rb&&!rb.disabled)rb.click()}}}
+  document.querySelectorAll('#dock [data-radd]').forEach(b=>b.onclick=()=>{if(!rr)return;S.raise=Math.max(+rr.min,Math.min(+rr.max,(S.raise||0)+(+b.dataset.radd)));upd()});
   document.querySelectorAll('#dock [data-pre]').forEach(b=>b.onclick=()=>{
     if(!rr)return;const me=v.seats[v.me],h=v.h;
     const total=(h.pot||0)+v.seats.reduce((a,s)=>a+(s.b||0),0),toCall=Math.max(0,h.cb-me.b);
@@ -967,7 +1110,7 @@ function bindDock(){
 }
 // 100ms마다 타이머 링·숫자만 갱신 (전체 다시 그리지 않음)
 function tick(){
-  const v=S.view;if(!v)return;if(v.game==='bj'){bjTick();return}const now=Date.now(),h=v.h;
+  const v=S.view;if(!v)return;if(v.game==='bj'){bjTick();return}if(v.game==='bac'){bacTick();return}const now=Date.now(),h=v.h;
   if(S.pendSq===h.sq&&now-S.actAt>4000){S.pendSq=-1;renderDock(true)}
   const turnOn=v.status==='playing'&&h.tu>=0&&BETTING.has(h.st)&&S.turnEnd>0&&S.turnTotal>0;
   const tt=$('#timerTxt');
@@ -985,20 +1128,63 @@ setInterval(tick,100);
 document.addEventListener('keydown',e=>{
   if(e.target.closest('input,select,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
   const k=e.key.toLowerCase();
-  if(S.view&&S.view.game==='bj'){const m={h:'hit',s:'stand',d:'double',p:'split'}[k];const bb=m&&document.querySelector(`#dock [data-bj="${m}"]`);if(bb&&!bb.disabled){e.preventDefault();bb.click()}return}
+  if(S.view&&S.view.game==='bac')return;
+  if(S.view&&S.view.game==='bj'){const m={h:'hit',s:'stand',d:'double',p:'split',r:'surrender'}[k];const bb=m&&document.querySelector(`#dock [data-bj="${m}"]`);if(bb&&!bb.disabled){e.preventDefault();bb.click()}return}
   const b=k==='f'?document.querySelector('#dock [data-act="fold"]'):k==='c'?document.querySelector('#dock [data-act="call"],#dock [data-act="check"]'):k==='r'?$('#raiseBtn'):null;
   if(b&&!b.disabled){e.preventDefault();b.click()}
 });
 
 
+/* ================= 공통: 칩 버튼 · 독 · 순위 · 방장 메뉴 ================= */
+const CHIP_VALS=[10,50,100,500,1000,5000];
+const CHIP_COL={10:'#e9e2cf',50:'#c4382a',100:'#2f8f5b',500:'#6f4bb8',1000:'#26262a',5000:'#e07b1f'};
+const chipLbl=v=>v>=1000?(v/1000)+'K':String(v);
+function chipsHTML(attr,max,sel){return CHIP_VALS.map(v=>`<button type="button" class="chip${sel===v?' sel':''}" style="--cc:${CHIP_COL[v]}" data-${attr}="${v}"${max!=null&&v>max?' disabled':''} aria-label="${fmt(v)}">${chipLbl(v)}</button>`).join('')}
+const digits=v=>parseInt(String(v||'').replace(/[^0-9]/g,''),10)||0;
+// 독을 다시 그려도 입력칸 포커스·커서 유지
+function setDock(html){
+  const dock=$('#dock');const a=document.activeElement;const id=a&&dock.contains(a)&&a.id?a.id:'';
+  let ss=null,se=null;if(id&&a.tagName==='INPUT'){try{ss=a.selectionStart;se=a.selectionEnd}catch(e){}}
+  dock.innerHTML=html;
+  if(id){const n=document.getElementById(id);if(n){try{n.focus({preventScroll:true});if(ss!=null)n.setSelectionRange(ss,se)}catch(e){}}}
+}
+function closeModals(){['rankModal','seatModal'].forEach(id=>{const m=document.getElementById(id);if(m)m.hidden=true});S.giveFor=''}
+function renderRank(){
+  const v=S.view;const rk=(v&&v.rk)||[];const box=$('#rankList');
+  if(!rk.length){box.innerHTML='<div class="rk-empty">게임을 시작하면 그때부터 순위가 기록돼요.</div>';return}
+  const mid=myId(),medal=['🥇','🥈','🥉'];
+  box.innerHTML=`<div style="overflow-x:auto"><table class="rk-t"><thead><tr><th></th><th>이름</th><th>수익</th><th>승/판</th><th>최고 한 판</th></tr></thead><tbody>${rk.map((x,i)=>`<tr class="${x.id===mid?'me':''}${x.here?'':' gone'}"><td>${medal[i]||(i+1)}</td><td>${esc(x.n)}${x.bot?' 🤖':''}${x.here?'':' <small>(나감)</small>'}</td><td class="${x.p>0?'pos':x.p<0?'neg':''}">${x.p>0?'+':''}${fmt(x.p)}</td><td>${x.w}/${x.g}</td><td>${x.b?'+'+fmt(x.b):'—'}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function openSeatMenu(id){S.giveFor=id;S.kickArm=0;$('#giveAmt').value='';$('#giveChips').innerHTML=chipsHTML('gadd',null);bindGiveChips();syncSeatModal();$('#seatModal').hidden=false}
+function syncSeatModal(){
+  const v=S.view;const s=v&&v.seats.find(x=>x.id===S.giveFor);
+  if(!v||!v.isHost||!s){closeModals();return}
+  const isMe=v.me>=0&&v.seats[v.me].id===s.id;
+  $('#seatTitle').textContent=`${s.n}${s.bot?' (AI)':''}${isMe?' (나)':''} · 칩 ${fmt(s.s)}${s.pg?` (+${fmt(s.pg)} 대기)`:''}`;
+  const playing=v.status==='playing';
+  $('#giveAmt').disabled=!playing;$('#giveBtn').disabled=!playing;
+  $('#giveHint').textContent=playing?'칩을 누르면 더해지고, 숫자를 직접 적어도 돼요. 판이 진행 중이면 그 판이 끝난 뒤에 들어가요. 순위에서는 받은 칩을 수익으로 치지 않아요.':'게임을 시작한 뒤에 칩을 줄 수 있어요.';
+  $('#kickSec').hidden=isMe;
+  const armed=S.kickArm>Date.now();$('#kickBtn').textContent=armed?'정말 추방하기 (한 번 더 누르기)':'추방하기';
+}
+function bindGiveChips(){document.querySelectorAll('#giveChips [data-gadd]').forEach(b=>b.onclick=()=>{const i=$('#giveAmt');i.value=String(digits(i.value)+(+b.dataset.gadd))})}
+$('#rankBtn').onclick=()=>{renderRank();$('#rankModal').hidden=false};
+$('#rankClose').onclick=$('#seatClose').onclick=()=>closeModals();
+['rankModal','seatModal'].forEach(id=>{$('#'+id).addEventListener('click',e=>{if(e.target.id===id)closeModals()})});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
+$('#giveAmt').oninput=()=>{const i=$('#giveAmt');const n=digits(i.value);i.value=n?String(n):''};
+$('#giveClear').onclick=()=>{$('#giveAmt').value=''};
+$('#giveBtn').onclick=()=>{const amt=digits($('#giveAmt').value);const s=S.view&&S.view.seats.find(x=>x.id===S.giveFor);if(!s)return;if(amt<1){toast('줄 칩 수를 입력해 주세요');return}hostCmd('give',{id:s.id,amt});toast(`${s.n}에게 칩 ${fmt(amt)}을 줬어요`);closeModals()};
+$('#kickBtn').onclick=()=>{const s=S.view&&S.view.seats.find(x=>x.id===S.giveFor);if(!s)return;if(S.kickArm>Date.now()){hostCmd('kick',{id:s.id});toast(`${s.n}님을 추방했어요`);closeModals()}else{S.kickArm=Date.now()+3000;syncSeatModal();setTimeout(()=>{if(!$('#seatModal').hidden)syncSeatModal()},3100)}};
+
 /* ================= 블랙잭 화면 ================= */
 const cardVal=c=>c[0]==='A'?11:'TJQK'.includes(c[0])?10:+c[0];
-const RES_TXT={bj:'블랙잭!',win:'승',lose:'패',push:'푸시',bust:'버스트'};
+const RES_TXT={bj:'블랙잭!',win:'승',lose:'패',push:'푸시',bust:'버스트',sur:'서렌더',even:'이븐 머니'};
 function totHTML(h){const cls=h.t>21?'bust':(h.bj?'bj':'');return `<span class="tot ${cls}">${h.bj?'BJ':(h.soft?h.t-10+'/'+h.t:h.t)}</span>`}
 function bjGeom(i,n){
   const th=(200-(i+0.5)*220/Math.max(n,1))*Math.PI/180,c=Math.cos(th),s=Math.sin(th);
   const narrow=matchMedia('(max-width:699px)').matches;
-  return narrow?{x:50+45*c,y:46+38*s,bx:50+28*c,by:46+23*s}:{x:50+45*c,y:50+43*s,bx:50+29*c,by:50+27*s};
+  return narrow?{x:50+45*c,y:46+38*s,bx:50+28*c,by:46+23*s,c,s,narrow}:{x:50+45*c,y:50+43*s,bx:50+29*c,by:50+27*s,c,s,narrow};
 }
 function renderBJSeats(v){
   const n=v.seats.length,h=v.h,now=Date.now(),lobby=v.status==='lobby';
@@ -1039,12 +1225,13 @@ function renderBJSeats(v){
     else if(s.o)tag='<span class="tag muted">칩 부족</span>';
     else if(s.aw)tag='<span class="tag muted">자리 비움</span>';
     else if(h.st==='bet'){tag=!s.ir?'<span class="tag muted">다음 판</span>':s.sit?'<span class="tag muted">쉬기</span>':s.ok?`<span class="tag">베팅 ${fmt(s.want)}</span>`:'<span class="tag muted">베팅 중…</span>'}
+    else if(h.st==='ins'&&s.ir&&s.hs.length){tag=s.insd?(s.ins?`<span class="tag">인슈어런스 ${fmt(s.ins)}</span>`:(s.hs[0].ev?'<span class="tag">이븐 머니</span>':'<span class="tag muted">안 함</span>')):'<span class="tag muted">고르는 중…</span>'}
     else if(h.st==='show'&&s.ir&&s.hs.length){
       const r0=s.hs.map(x=>RES_TXT[x.res]||'').filter(Boolean);
       const label=s.hs.length>1?r0.join(' · '):r0[0]||'';
       tag=`<span class="tag ${s.w>0?'win':(s.w<0?'muted':'')}">${esc(label)} ${s.w>0?'+':''}${s.w?fmt(s.w):''}</span>`;
     }
-    else if(s.ir&&s.hs.length&&s.hs.some(x=>x.dbl))tag='<span class="tag">더블</span>';
+    else if(s.ir&&s.hs.length&&(s.hs.some(x=>x.dbl||x.sur||x.ev)||s.ins))tag=`<span class="tag">${s.hs.some(x=>x.sur)?'서렌더':s.hs.some(x=>x.ev)?'이븐 머니':s.hs.some(x=>x.dbl)?'더블':'인슈어런스 '+fmt(s.ins)}</span>`;
     else if(!s.ir&&h.st!=='idle')tag='<span class="tag muted">대기</span>';
     setHTML(o.tg,tag);
     const wk=won?h.no+':'+s.w:'';
@@ -1061,7 +1248,7 @@ function renderBJTable(){
   const v=S.view;
   const cp=$('#centerPlay'),cl=$('#centerLobby'),cb=$('#centerBJ'),dl=$('#dealer');
   $('#emoBtn').hidden=false;$('#dbtn').hidden=true;$('#reveal').hidden=true;cp.hidden=true;
-  $('#stamp').textContent='BLACKJACK PAYS 3 TO 2';$('#table').classList.add('bj');
+  $('#stamp').textContent='BLACKJACK PAYS 3 TO 2 · INSURANCE PAYS 2 TO 1';$('#table').classList.add('bj');$('#table').classList.remove('bac');$('#bacz').hidden=true;$('#centerBac').hidden=true;
   renderBJSeats(v);
   const h=v.h,n=v.seats.length;
   if(v.status==='lobby'){
@@ -1087,10 +1274,11 @@ function renderBJTable(){
   if(!S.conn)st='<div class="status">연결이 끊겼어요. 다시 연결하는 중…</div>';
   else if(v.msg)st=`<div class="status">${esc(v.msg)}</div>`;
   else if(h.st==='bet')st=`<div class="status"><b style="color:var(--brass)">베팅하세요</b> <span class="num" id="bjCenterT"></span></div>`;
+  else if(h.st==='ins')st=`<div class="status"><b style="color:var(--brass)">딜러 A · 인슈어런스?</b> <span class="num" id="bjCenterT"></span></div>`;
   else if(h.st==='play'&&v.seats[h.tu])st=`<div class="status">${h.tu===v.me?'<b style="color:var(--brass)">내 차례</b>':esc(v.seats[h.tu].n)+' 차례'}</div>`;
   else if(h.st==='dealer')st='<div class="status">딜러 차례</div>';
   else if(h.st==='show')st=`<div class="result"><div class="rk">${esc(h.line||'')}</div><div class="rs nx"></div></div>`;
-  setHTML(cb,`${st}<div class="blinds">최소 베팅 ${fmt(v.set.minBet)} · 판 #${h.no}</div>`);
+  setHTML(cb,`${st}<div class="blinds">최소 베팅 ${fmt(v.set.minBet)} · 딜러 소프트 17 스탠드 · 판 #${h.no}</div>`);
 }
 function bjHandsHTML(me,h,size){
   if(!me||!me.hs||!me.hs.length)return `<div class="cards">${cardHTML(null,'lg')+cardHTML(null,'lg')}</div>`;
@@ -1101,7 +1289,7 @@ function renderBJDock(force){
   const dock=$('#dock');const v=S.view;
   const i=v.me,me=i>=0?v.seats[i]:null,h=v.h,set=v.set;
   if(h.no!==S.bjBetNo&&me){S.bjBetNo=h.no;S.bjBet=me.want||set.minBet}
-  const sig=JSON.stringify([v.status,h.sq,h.st,set,v.seats.length,me,v.isHost,S.pendSq,S.bjBet,v.seats.some(s=>s.o),S.lobbyArm>Date.now(),v.seats.filter(s=>!s.aw&&!s.bot).length]);
+  const sig=JSON.stringify([v.status,h.sq,h.st,set,v.seats.length,me,v.isHost,S.pendSq,v.seats.some(s=>s.o),S.lobbyArm>Date.now(),v.seats.filter(s=>!s.aw&&!s.bot).length]);
   if(!force&&sig===S.dockSig)return;S.dockSig=sig;
   let html='';
   if(v.status==='lobby'){
@@ -1114,8 +1302,8 @@ function renderBJDock(force){
         ${bots.map(b=>`<span class="botchip">${esc(b.n)} · ${esc(b.lv)}<button data-kick="${esc(b.id)}" aria-label="${esc(b.n)} 빼기" title="빼기">✕</button></span>`).join('')}
       </div>
       <div class="settings">
-        <div class="field"><label for="setStack">시작 칩</label><select class="select" id="setStack">${opt([500,1000,2000,5000,10000],set.stack,fmt)}</select></div>
-        <div class="field"><label for="setMinBet">최소 베팅</label><select class="select" id="setMinBet">${opt([10,20,50,100,200],set.minBet,fmt)}</select></div>
+        <div class="field"><label for="setStack">시작 칩</label><select class="select" id="setStack">${opt([500,1000,2000,5000,10000,50000],set.stack,fmt)}</select></div>
+        <div class="field"><label for="setMinBet">최소 베팅</label><select class="select" id="setMinBet">${opt([10,20,50,100,200,500],set.minBet,fmt)}</select></div>
         <div class="field"><label for="setTimer">턴 시간</label><select class="select" id="setTimer">${opt([20,30,60,0],set.timer,x=>x?x+'초':'무제한')}</select></div>
       </div>
       <div class="waitmsg"><b>${v.seats.length}명</b> 준비 완료${bots.length?` (AI ${bots.length}명 포함)`:''} · 블랙잭은 혼자서도 할 수 있어요</div>
@@ -1134,20 +1322,34 @@ function renderBJDock(force){
       const mb=set.minBet,max=me.s;S.bjBet=Math.max(Math.min(mb,max),Math.min(max,S.bjBet||mb));
       html+=`<div class="actions">
         <div class="myturn">베팅하세요 <span class="timer" id="timerTxt"></span></div>
-        <div class="betrow"><button class="btn sm" data-bstep="-1" aria-label="줄이기">−</button><div class="betamt num" id="betAmt">${fmt(S.bjBet)}</div><button class="btn sm" data-bstep="1" aria-label="늘리기">+</button>
-          <div class="presets"><button class="btn sm" data-bpre="1">최소</button><button class="btn sm" data-bpre="2">×2</button><button class="btn sm" data-bpre="5">×5</button><button class="btn sm" data-bpre="all">올인</button></div></div>
+        <div class="amtrow"><label for="bjAmt">베팅 금액</label><input class="input amtin num" id="bjAmt" inputmode="numeric" autocomplete="off" value="${S.bjBet}" aria-label="베팅 금액 입력">
+          <div class="presets"><button class="btn sm" data-bset="min">최소</button><button class="btn sm" data-bset="x2">×2</button><button class="btn sm" data-bset="half">½</button><button class="btn sm" data-bset="all">올인</button></div></div>
+        <div class="chips">${chipsHTML('badd',me.s)}</div>
+        <div class="hint">칩을 누르면 그만큼 더해지고, 숫자를 직접 적어도 돼요.</div>
         <div class="actrow two"><button class="btn ghost" id="sitBtn">이번 판 쉬기</button><button class="btn brass" id="betOk">${fmt(S.bjBet)} 베팅하기</button></div>
       </div>`;
+    }else if(h.st==='ins'&&me&&me.ir&&me.hs.length&&!me.insd){
+      const hh=me.hs[0],half=Math.floor(hh.b/2);
+      html+=hh.bj?`<div class="actions">
+        <div class="myturn">딜러가 A를 보여요 <span class="timer" id="timerTxt"></span></div>
+        <div class="waitmsg">블랙잭이에요! <b>이븐 머니</b>를 받으면 딜러 결과와 상관없이 <b>+${fmt(hh.b)}</b> 확정이에요. 안 받으면 딜러가 블랙잭이 아닐 때 +${fmt(Math.floor(hh.b*1.5))}, 딜러도 블랙잭이면 0이에요.</div>
+        <div class="actrow two"><button class="btn ghost" data-ins="0">안 받기</button><button class="btn brass" data-ins="1">이븐 머니 받기</button></div></div>`
+      :`<div class="actions">
+        <div class="myturn">딜러가 A를 보여요 · 인슈어런스? <span class="timer" id="timerTxt"></span></div>
+        <div class="waitmsg">베팅의 절반(<b>${fmt(half)}</b>)을 더 걸면, 딜러가 블랙잭일 때 2배(<b>+${fmt(half*2)}</b>)를 받아 본 베팅 손해를 메워요. 딜러가 블랙잭이 아니면 그 ${fmt(half)}은 잃어요.</div>
+        <div class="actrow two"><button class="btn ghost" data-ins="0">안 함</button><button class="btn brass" data-ins="1"${half<1||me.s<half?' disabled':''}>인슈어런스 ${fmt(half)}</button></div></div>`;
     }else if(h.st==='play'&&me&&h.tu===i&&S.pendSq!==h.sq&&cur){
-      const canDbl=cur.c.length===2&&me.s>=cur.b;
-      const canSplit=me.hs.length===1&&cur.c.length===2&&cardVal(cur.c[0])===cardVal(cur.c[1])&&me.s>=cur.b;
+      const canDbl=cur.c.length===2&&!cur.as&&me.s>=cur.b;
+      const canSplit=me.hs.length<4&&cur.c.length===2&&!cur.as&&cardVal(cur.c[0])===cardVal(cur.c[1])&&me.s>=cur.b&&!(cur.c[0][0]==='A'&&me.hs.length>1);
+      const canSur=me.hs.length===1&&!cur.sp&&cur.c.length===2;
       html+=`<div class="actions">
         <div class="myturn">내 차례${me.hs.length>1?` · ${h.hi+1}번째 손`:''} <span class="timer" id="timerTxt"></span></div>
-        <div class="actrow four">
+        <div class="actrow five">
           <button class="btn ivory" data-bj="hit">히트<kbd>H</kbd></button>
           <button class="btn ghost" data-bj="stand">스탠드<kbd>S</kbd></button>
           <button class="btn brass" data-bj="double"${canDbl?'':' disabled'}>더블<kbd>D</kbd></button>
           <button class="btn" data-bj="split"${canSplit?'':' disabled'}>스플릿<kbd>P</kbd></button>
+          <button class="btn ghost" data-bj="surrender"${canSur?'':' disabled'} title="베팅 절반을 돌려받고 포기">서렌더<kbd>R</kbd></button>
         </div>
       </div>`;
     }else{
@@ -1156,6 +1358,7 @@ function renderBJDock(force){
       else if(me.o)w='칩이 최소 베팅보다 적어요. 방장이 리바이를 해 주면 다시 참여할 수 있어요.';
       else if(h.st==='bet'&&me.ir&&me.sit)w='이번 판은 쉬어요.';
       else if(h.st==='bet'&&me.ok)w=`<b>${fmt(me.want)}</b> 베팅 완료. 다른 사람을 기다리는 중… <span class="timer" id="timerTxt"></span>`;
+      else if(h.st==='ins')w=`다른 사람이 인슈어런스를 고르는 중… <span class="timer" id="timerTxt"></span>`;
       else if(!me.ir&&h.st!=='show'&&h.st!=='idle')w='다음 판부터 참여해요.';
       else if(h.st==='show')w=me.ir&&me.hs.length?(me.w>0?`<b style="color:var(--ok)">+${fmt(me.w)}</b> 이겼어요!`:me.w<0?`${fmt(-me.w)} 잃었어요.`:'푸시 · 베팅을 돌려받았어요.'):'판이 끝났어요.';
       else if(h.st==='dealer')w='딜러가 카드를 뽑는 중…';
@@ -1173,17 +1376,20 @@ function renderBJDock(force){
         <button class="btn sm ghost${armed?' warn':''}" id="lobbyBtn">${armed?'정말 게임 끝내기':'게임 끝내고 대기실로'}</button></div>`;
     }
   }
-  dock.innerHTML=html;bindDock();bindBJDock();bjTick();
+  setDock(html);bindDock();bindBJDock();bjTick();
 }
 function bindBJDock(){
   const v=S.view;const on=(id,fn)=>{const el=document.getElementById(id);if(el)el.onclick=fn};
   on('lobbyBtn',()=>{if(S.lobbyArm>Date.now()){S.lobbyArm=0;hostCmd('lobby')}else{S.lobbyArm=Date.now()+3000;renderBJDock(true);setTimeout(()=>renderBJDock(true),3100)}});
   const mb=$('#setMinBet');if(mb)mb.onchange=()=>hostCmd('set',{minBet:+mb.value});
   const me=v.me>=0?v.seats[v.me]:null;
-  const upd=()=>{const a=$('#betAmt');if(a)a.textContent=fmt(S.bjBet);const o=$('#betOk');if(o)o.textContent=fmt(S.bjBet)+' 베팅하기'};
-  document.querySelectorAll('#dock [data-bstep]').forEach(b=>b.onclick=()=>{if(!me)return;const m=v.set.minBet;S.bjBet=Math.max(Math.min(m,me.s),Math.min(me.s,S.bjBet+m*(+b.dataset.bstep)));upd()});
-  document.querySelectorAll('#dock [data-bpre]').forEach(b=>b.onclick=()=>{if(!me)return;const p=b.dataset.bpre;S.bjBet=p==='all'?me.s:Math.min(me.s,v.set.minBet*(+p));upd()});
-  on('betOk',()=>{net.send('act',{a:'betok',x:S.bjBet});SND.play('chip')});
+  const ai=$('#bjAmt');
+  const upd=(fromInput)=>{if(ai&&!fromInput)ai.value=S.bjBet||'';const o=$('#betOk');if(o)o.textContent=fmt(S.bjBet)+' 베팅하기'};
+  if(ai&&me){ai.oninput=()=>{const n=digits(ai.value);ai.value=n?String(n):'';S.bjBet=Math.min(me.s,n);upd(true)};ai.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();const o=$('#betOk');if(o)o.click()}}}
+  document.querySelectorAll('#dock [data-badd]').forEach(b=>b.onclick=()=>{if(!me)return;S.bjBet=Math.min(me.s,(S.bjBet||0)+(+b.dataset.badd));upd();SND.play('chip')});
+  document.querySelectorAll('#dock [data-bset]').forEach(b=>b.onclick=()=>{if(!me)return;const p=b.dataset.bset,m=v.set.minBet;S.bjBet=p==='all'?me.s:p==='min'?Math.min(m,me.s):p==='x2'?Math.min(me.s,(S.bjBet||m)*2):Math.max(Math.min(m,me.s),Math.floor((S.bjBet||m)/2));upd()});
+  on('betOk',()=>{if(!me)return;const m=Math.min(v.set.minBet,me.s);if((S.bjBet||0)<m){toast(`최소 베팅은 ${fmt(v.set.minBet)}이에요`);S.bjBet=m;upd();return}net.send('act',{a:'betok',x:S.bjBet});SND.play('chip')});
+  document.querySelectorAll('#dock [data-ins]').forEach(b=>b.onclick=()=>{net.send('act',{a:'ins',x:+b.dataset.ins});document.querySelectorAll('#dock [data-ins]').forEach(x=>x.disabled=true);if(+b.dataset.ins)SND.play('chip')});
   on('sitBtn',()=>net.send('act',{a:'sit'}));
   document.querySelectorAll('#dock [data-bj]').forEach(b=>b.onclick=()=>{
     const h=v.h;if(S.pendSq===h.sq)return;S.pendSq=h.sq;S.actAt=Date.now();
@@ -1199,7 +1405,7 @@ function bjTick(){
     const o=v.seats[h.tu]&&seatEls.get(v.seats[h.tu].id);
     if(o){o.ring.querySelector('circle').style.strokeDashoffset=(169.6*(1-frac)).toFixed(1);o.ring.classList.toggle('low',left<6000)}
     if(tt)tt.textContent=`${Math.ceil(left/1000)}초`;
-  }else if(h.st==='bet'&&S.betEnd>0){
+  }else if((h.st==='bet'||h.st==='ins')&&S.betEnd>0){
     const t=`${Math.max(0,Math.ceil((S.betEnd-now)/1000))}초`;if(tt)tt.textContent=t;if(ct)ct.textContent=t;
   }else if(tt)tt.textContent='';
   const nxt=(v.status==='playing'&&h.st==='show'&&S.nextEnd>now)?`다음 판 ${Math.ceil((S.nextEnd-now)/1000)}초`:'';
@@ -1212,7 +1418,187 @@ function bjSounds(p,v){
   if(h.no===ph.no&&h.st!==ph.st&&h.st==='play')SND.play('deal');
   if(v.me>=0&&h.st==='play'&&h.tu===v.me&&!(ph.st==='play'&&ph.tu===v.me&&ph.hi===h.hi)){SND.play('turn');try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}}
   if(v.me>=0&&h.st==='bet'&&ph.st!=='bet'&&v.seats[v.me].ir)SND.play('turn');
+  if(v.me>=0&&h.st==='ins'&&ph.st!=='ins'&&v.seats[v.me].ir)SND.play('turn');
   if(h.st==='show'&&ph.st!=='show'&&v.me>=0){const me=v.seats[v.me];if(me.w>0)SND.play(me.hs.some(x=>x.bj)?'win':'split')}
+}
+
+/* ================= 바카라 화면 ================= */
+const BAC_KEYS=['p','b','t','pp','bp','pb','bb'];
+const BAC_FULL={p:'플레이어',b:'뱅커',t:'타이',pp:'P 페어',bp:'B 페어',pb:'P 보너스',bb:'B 보너스'};
+const bacSumC=b=>BAC_KEYS.reduce((a,k)=>a+(+((b||{})[k])||0),0);
+function renderBacSeats(v){
+  const n=v.seats.length,h=v.h,now=Date.now(),lobby=v.status==='lobby';
+  const ids=new Set(v.seats.map(s=>s.id));
+  for(const[id,o]of seatEls)if(!ids.has(id)){o.root.remove();o.bet.remove();seatEls.delete(id)}
+  v.seats.forEach((s,i)=>{
+    let o=seatEls.get(s.id);if(!o){o=makeSeat();seatEls.set(s.id,o)}
+    const g=bjGeom(i,n);
+    o.root.style.left=g.x+'%';o.root.style.top=g.y+'%';o.root.dataset.i=i;
+    const won=h.st==='show'&&s.w>0;
+    o.root.className='seat bjs'+(i===v.me?' me':'')+(s.o?' out':'')+(s.aw?' aw':'')+(won?' win':'')+(!lobby&&!s.ir&&h.st!=='idle'?' sitout':'')+(s.bot?' isbot':'');
+    o.av.style.setProperty('--c',avColor(s.id));
+    o.ini.textContent=s.bot?'🤖':initial(s.n);o.av.classList.toggle('bot',!!s.bot);
+    o.nm.textContent=s.n+(i===v.me?' (나)':'');
+    o.stk.textContent=fmt(s.s);
+    let crown=o.av.querySelector('.crown');
+    if(s.host&&!crown){crown=document.createElement('span');crown.className='crown';crown.textContent='👑';crown.title='방장';o.av.appendChild(crown)}
+    else if(!s.host&&crown)crown.remove();
+    setHTML(o.hc,'');
+    const sum=bacSumC(s.bets);
+    let tag='';
+    if(lobby)tag=s.bot?`<span class="tag ai">AI · ${esc(s.lv)}</span>`:(s.aw?'<span class="tag muted">연결 끊김</span>':'');
+    else if(s.o)tag='<span class="tag muted">칩 부족</span>';
+    else if(s.aw)tag='<span class="tag muted">자리 비움</span>';
+    else if(h.st==='bet')tag=!s.ir?'<span class="tag muted">다음 판</span>':s.sit?'<span class="tag muted">쉬기</span>':s.ok?'<span class="tag">베팅 완료</span>':'<span class="tag muted">베팅 중…</span>';
+    else if(h.st==='deal'&&sum){const ks=BAC_KEYS.filter(k=>s.bets[k]);tag=`<span class="tag">${ks.slice(0,2).map(k=>BAC_FULL[k]+' '+fmt(s.bets[k])).join(' · ')}${ks.length>2?' …':''}</span>`}
+    else if(h.st==='show'&&sum)tag=`<span class="tag ${s.w>0?'win':(s.w<0?'muted':'')}">${s.w>0?'+':''}${s.w?fmt(s.w):'본전'}</span>`;
+    else if(!s.ir&&h.st!=='idle')tag='<span class="tag muted">대기</span>';
+    setHTML(o.tg,tag);
+    const wk=won?h.no+':'+s.w:'';
+    if(wk&&o.wonKey!==wk){const gdiv=document.createElement('div');gdiv.className='gain';gdiv.textContent='+'+fmt(s.w);o.root.appendChild(gdiv);setTimeout(()=>gdiv.remove(),1900)}
+    o.wonKey=wk;
+    const b=S.bubbles[s.id];setHTML(o.bub,b&&b.until>now?b.html:'');
+    o.bet.style.left=(g.narrow?50+33*g.c:g.bx)+'%';o.bet.style.top=(g.narrow?46+31*g.s:g.by)+'%';
+    o.bet.hidden=!(sum>0&&!lobby&&h.st!=='idle');o.amt.textContent=fmt(sum);
+  });
+}
+function bacCards(el,cards,no){
+  if(el._no!==no){el._no=no;el._n=0;el._k=null}
+  const k=cards.join(',');if(el._k===k)return;
+  el.innerHTML=cards.length?cards.map((c,j)=>cardHTML(c,'',(j===2?'side ':'')+(j>=el._n?'flip':''))).join(''):cardHTML(null,'')+cardHTML(null,'');
+  el._n=cards.length;el._k=k;
+}
+function roadHTML(hist){
+  const hs=(hist||[]).slice(-20);if(!hs.length)return '';
+  const all=hist||[],c={P:0,B:0,T:0};all.forEach(x=>c[x.w]++);
+  return `<div class="roadwrap"><div class="road" aria-label="최근 결과">${hs.map(x=>`<i class="${x.w}${x.pp?' pp':''}${x.bp?' bp':''}" title="${x.w==='P'?'플레이어':x.w==='B'?'뱅커':'타이'}">${x.n}</i>`).join('')}</div><div class="rc">플레이어 ${c.P} · 뱅커 ${c.B} · 타이 ${c.T}</div></div>`;
+}
+function renderBacTable(){
+  const v=S.view;
+  $('#centerPlay').hidden=true;$('#dealer').hidden=true;$('#centerBJ').hidden=true;$('#reveal').hidden=true;$('#dbtn').hidden=true;$('#emoBtn').hidden=false;
+  const tb=$('#table');tb.classList.add('bac');tb.classList.remove('bj');
+  $('#stamp').textContent='BACCARAT · TIE PAYS 8 TO 1';
+  renderBacSeats(v);
+  const h=v.h,n=v.seats.length,cl=$('#centerLobby'),cb=$('#centerBac'),z=$('#bacz');
+  if(v.status==='lobby'){
+    z.hidden=true;cb.hidden=true;cl.hidden=false;
+    setHTML(cl,`<span class="gametag">바카라</span><div class="lobby-sub">방 코드</div><div class="lobby-code" id="bigCode">${esc(v.code)}</div><button class="btn sm brass" id="copyLink" type="button">초대 링크 복사</button><div class="lobby-sub">${n}/8명 · 혼자서도 할 수 있어요</div>`);
+    const btn=$('#copyLink');if(btn)btn.onclick=copyLink;return;
+  }
+  cl.hidden=true;z.hidden=false;cb.hidden=false;
+  bacCards($('#bacPc'),h.pc||[],h.no);bacCards($('#bacBc'),h.bc||[],h.no);
+  const pt=$('#bacPt'),bt=$('#bacBt');pt.textContent=h.pt>=0?h.pt:'';pt.hidden=h.pt<0;bt.textContent=h.bt>=0?h.bt:'';bt.hidden=h.bt<0;
+  const o=h.o;
+  $('#bacP').className='bach p'+(o&&o.win==='P'?' won':'')+(o&&o.win==='T'?' tie':'');
+  $('#bacB').className='bach b'+(o&&o.win==='B'?' won':'')+(o&&o.win==='T'?' tie':'');
+  let st='';
+  if(!S.conn)st='<div class="status">연결이 끊겼어요. 다시 연결하는 중…</div>';
+  else if(v.msg)st=`<div class="status">${esc(v.msg)}</div>`;
+  else if(h.st==='bet')st=`<div class="status"><b style="color:var(--brass)">베팅하세요</b> <span class="num" id="bacCenterT"></span></div>`;
+  else if(h.st==='deal')st='<div class="status">카드 공개 중…</div>';
+  else if(h.st==='show')st=`<div class="result${o&&o.win==='T'?' split':''}"><div class="rk">${esc(h.line||'')}</div><div class="rs nx"></div></div>`;
+  setHTML(cb,`${st}${roadHTML(h.hist)}<div class="blinds">최소 베팅 ${fmt(v.set.minBet)} · 판 #${h.no}</div>`);
+}
+function bacSpot(k,cls,title,odds){return `<div class="spot ${cls}" role="button" tabindex="0" data-spot="${k}" aria-label="${title} ${odds}"><b>${title}</b><i>${odds}</i><span class="amt" data-amt="${k}"></span><button type="button" class="clr" data-clr="${k}" aria-label="${title} 지우기" hidden>✕</button></div>`}
+function myBacBets(me,h){
+  if(!me||!bacSumC(me.bets))return '';
+  return `<div class="mybets">${BAC_KEYS.filter(k=>me.bets[k]).map(k=>{const r=h.st==='show'&&me.res?me.res[k]:null;return `<span class="${r>0?'w':r<0?'l':''}">${BAC_FULL[k]} ${fmt(me.bets[k])}${r!=null?` → ${r>0?'+':''}${fmt(r)}`:''}</span>`}).join('')}</div>`;
+}
+function renderBacDock(force){
+  const v=S.view;const i=v.me,me=i>=0?v.seats[i]:null,h=v.h,set=v.set;
+  if(h.no!==S.bacNo){S.bacNo=h.no;S.bac={}}
+  if(!S.bacChip)S.bacChip=CHIP_VALS.find(x=>x>=set.minBet)||set.minBet;
+  const sig=JSON.stringify([v.status,h.sq,h.st,set,v.seats.length,me,v.isHost,v.seats.some(s=>s.o),S.lobbyArm>Date.now(),v.seats.filter(s=>!s.aw&&!s.bot).length]);
+  if(!force&&sig===S.dockSig)return;S.dockSig=sig;
+  let html='';
+  if(v.status==='lobby'){
+    if(v.isHost){
+      const opt=(arr,cur,f)=>arr.map(x=>`<option value="${x}"${String(x)===String(cur)?' selected':''}>${f(x)}</option>`).join('');
+      const humans=v.seats.filter(s=>!s.aw&&!s.bot).length,bots=v.seats.filter(s=>s.bot),full=v.seats.length>=8;
+      html=`<div class="botbar"><span class="lbl">🤖 AI 플레이어</span>
+        <select class="select" id="botLv" aria-label="AI 난이도">${['easy','normal','hard'].map(x=>`<option value="${x}"${x===S.botLv?' selected':''}>${{easy:'쉬움',normal:'보통',hard:'어려움'}[x]}</option>`).join('')}</select>
+        <button class="btn sm brass" id="addBot"${full?' disabled':''}>AI 추가</button>
+        ${bots.map(b=>`<span class="botchip">${esc(b.n)} · ${esc(b.lv)}<button data-kick="${esc(b.id)}" aria-label="${esc(b.n)} 빼기" title="빼기">✕</button></span>`).join('')}
+      </div>
+      <div class="settings">
+        <div class="field"><label for="setStack">시작 칩</label><select class="select" id="setStack">${opt([500,1000,2000,5000,10000,50000],set.stack,fmt)}</select></div>
+        <div class="field"><label for="setMinBet">최소 베팅</label><select class="select" id="setMinBet">${opt([10,20,50,100,200,500],set.minBet,fmt)}</select></div>
+        <div class="field"><label for="setTimer">베팅 시간</label><select class="select" id="setTimer">${opt([15,20,30,0],set.timer,x=>x?x+'초':'무제한')}</select></div>
+      </div>
+      <div class="waitmsg"><b>${v.seats.length}명</b> 준비 완료${bots.length?` (AI ${bots.length}명 포함)`:''} · 바카라는 혼자서도 할 수 있어요</div>
+      <button class="btn brass" id="startBtn" style="padding:12px 22px"${humans<1?' disabled':''}>게임 시작</button>`;
+    }else html=`<div class="waitmsg"><b>${esc(me?me.n:S.name)}</b>님, 바카라 테이블에 앉았어요. 방장이 시작하길 기다리는 중이에요.<br>시작 칩 ${fmt(set.stack)} · 최소 베팅 ${fmt(set.minBet)}</div>`;
+  }else{
+    const betting=h.st==='bet'&&me&&me.ir&&!me.ok;
+    html=betting?'':`<div class="myhand"><div class="meta"><span class="lbl">내 칩</span><span class="stk num">${me?fmt(me.s):'관전 중'}</span></div>${myBacBets(me,h)}</div>`;
+    if(betting){
+      const lastOk=bacSumC(me.last)>0&&bacSumC(me.last)<=me.s;
+      html+=`<div class="bacboard">
+        <div class="myturn">베팅하세요 <span class="timer" id="timerTxt"></span></div>
+        <div class="r r3">${bacSpot('pp','','P 페어','11:1')}${bacSpot('t','t','타이','8:1')}${bacSpot('bp','','B 페어','11:1')}</div>
+        <div class="r r2">${bacSpot('pb','','P 보너스','최대 30:1')}${bacSpot('bb','','B 보너스','최대 30:1')}</div>
+        <div class="r r2">${bacSpot('p','main p','PLAYER','1:1')}${bacSpot('b','main b','BANKER','0.95:1')}</div>
+      </div>
+      <div class="amtrow" style="flex:1 1 100%"><div class="chips" id="bacChips">${chipsHTML('bchip',null,S.bacCustom?null:S.bacChip)}</div><input class="input amtin num" id="bacAmt" inputmode="numeric" autocomplete="off" placeholder="직접 입력" value="${S.bacCustom?S.bacChip:''}" aria-label="칩 금액 직접 입력"></div>
+      <div class="hint" style="flex:1 1 100%">칩을 고르거나 금액을 직접 적은 뒤 칸을 누르면 그만큼 올라가요. 각 칸은 최소 ${fmt(set.minBet)}. 타이가 나오면 플레이어·뱅커 베팅은 돌려받아요.</div>
+      <div class="bacfoot"><span class="tot2">총 베팅 <b id="bacTot">0</b> / 보유 ${fmt(me.s)}</span><div class="btns"><button class="btn sm ghost" id="bacClear">지우기</button>${lastOk?'<button class="btn sm ghost" id="bacRepeat">이전 베팅</button>':''}<button class="btn sm ghost" id="sitBtn">쉬기</button><button class="btn brass" id="bacOk">베팅 완료</button></div></div>`;
+    }else{
+      let w='';
+      if(!me)w='관전 중이에요. 자리 8개가 모두 찼어요.';
+      else if(me.o)w='칩이 최소 베팅보다 적어요. 방장이 리바이를 해 주면 다시 참여할 수 있어요.';
+      else if(h.st==='bet'&&me.sit)w='이번 판은 쉬어요.';
+      else if(h.st==='bet'&&me.ok)w=`베팅 완료! 다른 사람을 기다리는 중… <span class="timer" id="timerTxt"></span>`;
+      else if(!me.ir&&h.st!=='show'&&h.st!=='idle')w='다음 판부터 참여해요.';
+      else if(h.st==='deal')w='카드를 공개하는 중…';
+      else if(h.st==='show')w=me.ir&&bacSumC(me.bets)?(me.w>0?`<b style="color:var(--ok)">+${fmt(me.w)}</b> 이겼어요!`:me.w<0?`${fmt(-me.w)} 잃었어요.`:'본전이에요.'):'판이 끝났어요.';
+      else w='잠시만요…';
+      html+=`<div class="waitmsg">${w}</div>`;
+    }
+    if(v.isHost){
+      const anyOut=v.seats.some(s=>s.o),armed=S.lobbyArm>Date.now();
+      html+=`<div class="hostbar">방장 메뉴
+        ${h.st==='show'||h.st==='idle'?'<button class="btn sm" id="nextBtn">바로 다음 판</button>':''}
+        ${anyOut?'<button class="btn sm" id="rebuyBtn">칩 부족한 사람 리바이</button>':''}
+        ${v.seats.length<8?'<button class="btn sm" id="addBot2">🤖 AI 추가</button>':''}
+        <button class="btn sm ghost${armed?' warn':''}" id="lobbyBtn">${armed?'정말 게임 끝내기':'게임 끝내고 대기실로'}</button></div>`;
+    }
+  }
+  setDock(html);bindDock();bindBacDock();bacTick();updBac();
+}
+function updBac(){
+  const tot=bacSumC(S.bac);
+  document.querySelectorAll('#dock [data-amt]').forEach(el=>{const k=el.dataset.amt,a=S.bac[k]||0;el.textContent=a?fmt(a):'';el.parentNode.classList.toggle('has',a>0);const c=el.parentNode.querySelector('.clr');if(c)c.hidden=!a});
+  const t=$('#bacTot');if(t)t.textContent=fmt(tot);
+  const ok=$('#bacOk');if(ok)ok.disabled=!tot;
+}
+function bindBacDock(){
+  const v=S.view;const me=v.me>=0?v.seats[v.me]:null;const on=(id,fn)=>{const el=document.getElementById(id);if(el)el.onclick=fn};
+  on('lobbyBtn',()=>{if(S.lobbyArm>Date.now()){S.lobbyArm=0;hostCmd('lobby')}else{S.lobbyArm=Date.now()+3000;renderBacDock(true);setTimeout(()=>renderBacDock(true),3100)}});
+  const mb=$('#setMinBet');if(mb)mb.onchange=()=>hostCmd('set',{minBet:+mb.value});
+  const ai=$('#bacAmt');
+  document.querySelectorAll('#dock [data-bchip]').forEach(b=>b.onclick=()=>{S.bacChip=+b.dataset.bchip;S.bacCustom=false;if(ai)ai.value='';document.querySelectorAll('#dock [data-bchip]').forEach(x=>x.classList.toggle('sel',x===b))});
+  if(ai)ai.oninput=()=>{const n=digits(ai.value);ai.value=n?String(n):'';if(n){S.bacChip=n;S.bacCustom=true;document.querySelectorAll('#dock [data-bchip]').forEach(x=>x.classList.remove('sel'))}};
+  const add=k=>{if(!me)return;const c=S.bacChip||v.set.minBet;if(bacSumC(S.bac)+c>me.s){toast('가진 칩보다 많이 걸 수 없어요');return}S.bac[k]=(S.bac[k]||0)+c;SND.play('chip');updBac()};
+  document.querySelectorAll('#dock [data-spot]').forEach(el=>{el.onclick=e=>{if(e.target.closest('[data-clr]'))return;add(el.dataset.spot)};el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();add(el.dataset.spot)}}});
+  document.querySelectorAll('#dock [data-clr]').forEach(b=>b.onclick=e=>{e.stopPropagation();delete S.bac[b.dataset.clr];updBac()});
+  on('bacClear',()=>{S.bac={};updBac()});
+  on('bacRepeat',()=>{if(me){S.bac={...me.last};updBac()}});
+  on('sitBtn',()=>net.send('act',{a:'sit'}));
+  on('bacOk',()=>{if(!me)return;const m=v.set.minBet;const bad=BAC_KEYS.filter(k=>S.bac[k]&&S.bac[k]<m);if(bad.length){toast(`${bad.map(k=>BAC_FULL[k]).join(', ')}: 각 칸은 최소 ${fmt(m)}이에요`);return}net.send('act',{a:'betok',bets:S.bac});SND.play('chip')});
+}
+function bacTick(){
+  const v=S.view;if(!v)return;const now=Date.now(),h=v.h;
+  const tt=$('#timerTxt'),ct=document.getElementById('bacCenterT');
+  if(h.st==='bet'&&S.betEnd>0){const t=`${Math.max(0,Math.ceil((S.betEnd-now)/1000))}초`;if(tt)tt.textContent=t;if(ct)ct.textContent=t}
+  else if(tt)tt.textContent='';
+  const nxt=(v.status==='playing'&&h.st==='show'&&S.nextEnd>now)?`다음 판 ${Math.ceil((S.nextEnd-now)/1000)}초`:'';
+  document.querySelectorAll('#centerBac .nx').forEach(nx=>{if(nx.textContent!==nxt)nx.textContent=nxt});
+}
+function bacSounds(p,v){
+  const h=v.h,ph=p.h;
+  if(h.no===ph.no&&((h.pc||[]).length+(h.bc||[]).length)>((ph.pc||[]).length+(ph.bc||[]).length))SND.play('deal');
+  if(v.me>=0&&h.st==='bet'&&ph.st!=='bet'&&v.seats[v.me].ir)SND.play('turn');
+  if(h.st==='show'&&ph.st!=='show'&&v.me>=0){const me=v.seats[v.me];if(me.w>0)SND.play('win')}
 }
 
 /* ---------- 초대 링크 ---------- */
@@ -1236,7 +1622,7 @@ function renderHome(){
   if(last&&last.code&&Date.now()-last.at<12*3600e3){
     rb.hidden=false;
     rb.innerHTML=`<div class="resume"><span>방 <b class="num" style="color:var(--brass);letter-spacing:.12em">${esc(last.code)}</b>에 다시 들어가기</span><span class="row"><button class="btn sm brass" id="resumeBtn" type="button">입장</button><button class="btn sm ghost" id="dropBtn" type="button">지우기</button></span></div>`;
-    $('#resumeBtn').onclick=()=>{if(!takeName())return;if(last.pid&&last.pid!==PID){PID=last.pid;store.set('hd-pid',PID,true);S.code=last.code;resetRoomUI();showScreen('room');render();net.connect();return}joinRoom(last.code)};
+    $('#resumeBtn').onclick=()=>{if(!takeName())return;if(last.pid&&last.pid!==PID){PID=last.pid;store.set('hd-pid',PID,true);S.code=last.code;S.want=last.code;resetRoomUI();showScreen('room');render();net.connect();return}joinRoom(last.code)};
     $('#dropBtn').onclick=()=>{store.del('hd-last');renderHome()};
   }
 }
@@ -1245,13 +1631,13 @@ function takeName(){
   if(!n){$('#nameIn').focus();toast('닉네임을 먼저 적어 주세요');return false}
   S.name=n;store.set('hd-name',n);return true;
 }
-function resetRoomUI(){for(const[id,o]of seatEls){o.root.remove();o.bet.remove()}seatEls.clear();S.view=null;S.prev=null;S.unread=0;S.sqSeen=-1;S.pendSq=-1;S.dockSig='';S.bubbles={};S.resKey='';$('#chatList').innerHTML='';$('#board').innerHTML='';$('#emoPanel').hidden=true}
+function resetRoomUI(){closeModals();for(const[id,o]of seatEls){o.root.remove();o.bet.remove()}seatEls.clear();S.view=null;S.prev=null;S.unread=0;S.sqSeen=-1;S.pendSq=-1;S.dockSig='';S.bubbles={};S.resKey='';$('#chatList').innerHTML='';$('#board').innerHTML='';$('#emoPanel').hidden=true}
 function joinRoom(code){
-  resetRoomUI();S.code=code;showScreen('room');render();
+  resetRoomUI();S.code=code;S.want=code;showScreen('room');render();
   if(net.connected)net.send('join',{code,name:S.name});
 }
 function leaveRoom(){
-  net.send('leave');store.del('hd-room',true);store.del('hd-last');
+  S.want='';net.send('leave');store.del('hd-room',true);store.del('hd-last');
   S.code='';resetRoomUI();history.replaceState(null,'',location.pathname);
   showScreen('home');renderHome();renderTable();
 }
@@ -1260,10 +1646,10 @@ function leaveRoom(){
 $('#createBtn').onclick=()=>{
   if(!takeName())return;
   if(!net.connected){toast('서버에 연결하는 중이에요. 잠시 후 다시 눌러 주세요');return}
-  resetRoomUI();S.code='';showScreen('room');render();
+  resetRoomUI();S.code='';S.want='*';showScreen('room');render();
   net.send('create',{name:S.name,game:S.game});
 };
-function syncGamePick(){document.querySelectorAll('.gopt').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.game===S.game)));$('#createBtn').textContent=(S.game==='bj'?'블랙잭':'홀덤')+' 방 만들기'}
+function syncGamePick(){document.querySelectorAll('.gopt').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.game===S.game)));$('#createBtn').textContent=({bj:'블랙잭',bac:'바카라'}[S.game]||'홀덤')+' 방 만들기'}
 document.querySelectorAll('.gopt').forEach(b=>b.onclick=()=>{S.game=b.dataset.game;store.set('hd-game',S.game);syncGamePick()});
 syncGamePick();
 $('#homeForm').onsubmit=e=>{e.preventDefault();const c=$('#codeIn').value.trim().toUpperCase();if(!/^[A-Z0-9]{5}$/.test(c)){toast('5자리 방 코드를 입력해 주세요');return}if(!takeName())return;joinRoom(c)};
