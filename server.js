@@ -95,7 +95,10 @@ const BOT_NAMES = ['철수', '영희', '도윤', '하린', '준호', '서아', '
 const BOT_LEVELS = {
   easy:   { label: '쉬움',   sims: 250, noise: 0.14, loose: 0.30, aggr: 0.55, bluff: 0.05, slow: [900, 1900] },
   normal: { label: '보통',   sims: 600, noise: 0.07, loose: 0.12, aggr: 0.85, bluff: 0.10, slow: [1100, 2600] },
-  hard:   { label: '어려움', sims: 1200, noise: 0.03, loose: 0.02, aggr: 1.05, bluff: 0.14, slow: [1200, 3200] }
+  hard:   { label: '어려움', sims: 1200, noise: 0.03, loose: 0.02, aggr: 1.05, bluff: 0.14, slow: [1200, 3200] },
+  // 챌린지 보스 전용 (상대 습관을 읽고 범위로 계산하는 고수 AI)
+  pro:    { label: '고수',   sims: 1100, noise: 0.025, pro: 1, exploit: 0.55, slow: [1200, 3000] },
+  boss:   { label: '극악',   sims: 2200, noise: 0, pro: 1, exploit: 1, slow: [1300, 3200] }
 };
 const FULL_DECK = (() => { const d = []; for (const r of RANKS) for (const su of SUITS) d.push(r + su); return d; })();
 const rnd = () => Math.random();
@@ -161,6 +164,7 @@ function equity(hole, board, opps, sims) {
 }
 function botDecide(room, i) {
   const hd = room.hand, s = room.seats[i], L = BOT_LEVELS[s.lv] || BOT_LEVELS.normal;
+  if (L.pro) return proDecide(room, i);
   const hole = hd.holes[s.pid];
   const live = room.seats.filter((o, k) => k !== i && o.inHand && !o.folded);
   const opps = Math.max(1, live.length);
@@ -200,6 +204,201 @@ function botDecide(room, i) {
     return ['raise', sizeTo(rel > 2.2 ? 0.9 : 0.6)];
   }
   return ['call'];
+}
+
+/* ---------------- 고수 AI (챌린지 4·5단계 보스) ---------------- */
+// 1) 시작할 때 169가지 손패의 강함(무작위 1명 상대 승률)을 미리 계산 → "상위 몇 %" 표
+// 2) 상대가 이번 판에 한 행동(레이즈/콜/체크)으로 상대 손패 범위를 좁혀서 승률 계산
+// 3) 상대 습관(얼마나 자주 참여·레이즈·폴드하는지)을 판마다 기록해서 블러핑·콜 기준을 조절
+const PRE = (() => {
+  const t0 = Date.now(), list = [];
+  const deck = FULL_DECK.map(c => CARD_INT[c]);
+  for (let a = 12; a >= 0; a--) for (let b = a; b >= 0; b--) {
+    for (const kind of a === b ? ['p'] : ['s', 'o']) {
+      const h1 = a * 4, h2 = b * 4 + (kind === 's' ? 0 : 1);
+      const rest = deck.filter(c => c !== h1 && c !== h2);
+      let sc = 0; const S = 900, m = new Array(7), o = new Array(7);
+      for (let k = 0; k < S; k++) {
+        for (let i = 0; i < 7; i++) { const j = i + Math.floor(rnd() * (rest.length - i)); const t = rest[i]; rest[i] = rest[j]; rest[j] = t; }
+        m[0] = h1; m[1] = h2; o[0] = rest[5]; o[1] = rest[6];
+        for (let i = 0; i < 5; i++) { m[2 + i] = rest[i]; o[2 + i] = rest[i]; }
+        const x = eval7i(m), y = eval7i(o); sc += x > y ? 1 : x === y ? 0.5 : 0;
+      }
+      list.push({ key: a + ',' + b + kind, eq: sc / S, n: kind === 'p' ? 6 : kind === 's' ? 4 : 12 });
+    }
+  }
+  list.sort((x, y) => y.eq - x.eq);
+  const map = {}; let cum = 0;
+  for (const x of list) { map[x.key] = { eq: x.eq, pct: (cum + x.n / 2) / 1326 }; cum += x.n; }
+  if (require.main === module) console.log(`프리플랍 표 계산 ${Date.now() - t0}ms`);
+  return map;
+})();
+function preKeyI(c1, c2) { const r1 = c1 >> 2, r2 = c2 >> 2, a = Math.max(r1, r2), b = Math.min(r1, r2); return a + ',' + b + (a === b ? 'p' : (c1 & 3) === (c2 & 3) ? 's' : 'o'); }
+const prePct = (c1, c2) => PRE[preKeyI(c1, c2)].pct;
+const catOf = sc => Math.floor(sc / B13[5]);
+// 드로우: 플러시 드로우(같은 무늬 4장, 내 카드 포함) / 양방향 스트레이트 드로우
+function drawInfo(h, b) {
+  if (b.length < 3 || b.length >= 5) return { fd: false, oe: false };
+  const all = [...h, ...b];
+  let fd = false;
+  for (let su = 0; su < 4; su++) { const n = all.filter(c => (c & 3) === su).length; if (n === 4 && h.some(c => (c & 3) === su)) fd = true; }
+  let mask = 0; for (const c of all) mask |= 1 << (c >> 2);
+  let outs = 0;
+  if (straightHigh(mask) < 0) for (let r = 0; r < 13; r++) if (!(mask & (1 << r)) && straightHigh(mask | (1 << r)) >= 0) outs++;
+  return { fd, oe: outs >= 2 };
+}
+// 상대 손패가 지금 보드와 얼마나 잘 맞는지 (페어 이상 또는 강한 드로우면 "맞음")
+function connects(h, b) {
+  if (b.length < 3) return true;
+  const base = catOf(eval7i(b)), mine = catOf(eval7i([...h, ...b]));
+  if (mine > base) return true;
+  const d = drawInfo(h, b); return d.fd || d.oe;
+}
+// 사람 플레이어 습관 기록 (방마다)
+function oppStats(room, pid) {
+  if (!room.opp) room.opp = new Map();
+  let s = room.opp.get(pid);
+  if (!s) { s = { hands: 0, vpip: 0, pfr: 0, bets: 0, calls: 0, checks: 0, faced: 0, folds: 0 }; room.opp.set(pid, s); }
+  return s;
+}
+function oppModel(room, o, ex) {
+  const st = oppStats(room, o.pid), hx = o.hx || {};
+  const mix = (obs, n, prior, w) => prior + (n > 0 ? (obs / n - prior) * Math.min(1, n / w) * ex : 0);
+  const vpip = mix(st.vpip, st.hands, 0.55, 25), pfr = mix(st.pfr, st.hands, 0.25, 25);
+  const af = mix(st.bets, st.bets + st.calls + st.checks, 0.35, 30), fold = mix(st.folds, st.faced, 0.42, 20);
+  let top = 1;
+  if (hx.pf === '3') top = Math.max(0.04, Math.min(0.22, pfr * 0.45));
+  else if (hx.pf === 'r') top = Math.max(0.12, Math.min(0.75, pfr * 1.15));
+  else if (hx.pf === 'c') top = Math.max(0.3, Math.min(0.95, vpip));
+  const agg = !!(hx.agg && Object.keys(hx.agg).length), called = !!(hx.call && Object.keys(hx.call).length);
+  const air = Math.max(0.06, Math.min(0.6, 0.2 + (af - 0.35) * 0.9));
+  return { top, agg, called, air, fold, af };
+}
+function rangeEquity(hole, board, models, sims) {
+  if (!models.length) return 1;
+  const known = new Set([...hole, ...board]);
+  const rest = FULL_DECK.filter(c => !known.has(c)).map(c => CARD_INT[c]);
+  const h = hole.map(c => CARD_INT[c]), b = board.map(c => CARD_INT[c]);
+  const need = 5 - b.length, N = rest.length;
+  const used = new Uint8Array(64);
+  const mine7 = new Array(7), opp7 = new Array(7);
+  let score = 0;
+  const weight = (m, c1, c2) => {
+    let w = prePct(c1, c2) <= m.top ? 1 : 0.05;
+    if (b.length >= 3 && (m.agg || m.called)) w *= connects([c1, c2], b) ? 1 : (m.agg ? m.air : 0.4);
+    return w;
+  };
+  for (let k = 0; k < sims; k++) {
+    used.fill(0);
+    const pick = () => { for (;;) { const c = rest[Math.floor(rnd() * N)]; if (!used[c]) { used[c] = 1; return c; } } };
+    const oh = [];
+    for (const m of models) {
+      let c1, c2;
+      for (let t = 0; t < 14; t++) {
+        c1 = pick(); c2 = pick();
+        if (t === 13 || rnd() < weight(m, c1, c2)) break;
+        used[c1] = 0; used[c2] = 0;
+      }
+      oh.push(c1, c2);
+    }
+    for (let i = 0; i < b.length; i++) { mine7[2 + i] = b[i]; opp7[2 + i] = b[i]; }
+    for (let i = 0; i < need; i++) { const c = pick(); mine7[2 + b.length + i] = c; opp7[2 + b.length + i] = c; }
+    mine7[0] = h[0]; mine7[1] = h[1];
+    const mine = eval7i(mine7);
+    let lose = false, ties = 0;
+    for (let o = 0; o < models.length; o++) {
+      opp7[0] = oh[o * 2]; opp7[1] = oh[o * 2 + 1];
+      const p = eval7i(opp7);
+      if (p > mine) { lose = true; break; }
+      if (p === mine) ties++;
+    }
+    if (!lose) score += 1 / (ties + 1);
+  }
+  return score / sims;
+}
+function proDecide(room, i) {
+  const hd = room.hand, s = room.seats[i], L = BOT_LEVELS[s.lv];
+  const ex = L.exploit;
+  const hole = hd.holes[s.pid], hI = hole.map(c => CARD_INT[c]), bI = hd.bd.map(c => CARD_INT[c]);
+  const opps = room.seats.filter((o, k) => k !== i && o.inHand && !o.folded);
+  const models = opps.map(o => oppModel(room, o, ex));
+  let eq = rangeEquity(hole, hd.bd, models, L.sims);
+  eq = Math.min(1, Math.max(0, eq + (rnd() * 2 - 1) * L.noise));
+  const bb = room.settings.bb;
+  const bets = room.seats.reduce((a, o) => a + o.bet, 0);
+  const pot = hd.pot + bets;
+  const toCall = Math.max(0, hd.cb - s.bet);
+  const maxT = s.bet + s.stack;
+  const canRaise = !s.acted && maxT > hd.cb && room.seats.some((o, k) => k !== i && o.inHand && !o.folded && !o.allIn);
+  const minT = hd.cb === 0 ? Math.min(bb, maxT) : Math.min(hd.cb + hd.mr, maxT);
+  const effStack = Math.min(maxT, Math.max(...opps.map(o => o.stack + o.bet), 0));
+  const hu = opps.length === 1;
+  const fold = models.reduce((a, m) => a + m.fold, 0) / Math.max(1, models.length);
+  const potOdds = toCall / (pot + toCall);
+  const pct = prePct(hI[0], hI[1]);
+  const clampT = t => { t = Math.max(minT, Math.min(maxT, Math.round(t / 10) * 10)); if (t > maxT * 0.62) t = maxT; return t; };
+  const betPot = frac => clampT(hd.cb + Math.max(hd.mr, (pot + toCall) * frac));
+  const R = (t) => canRaise ? (t >= maxT ? ['allin'] : ['raise', t]) : (toCall > 0 ? ['call'] : ['check']);
+  const st = hd.st, nr = hd.nr || 0;
+
+  if (st === 'pre') {
+    const bbs = effStack / bb;
+    const opened = nr > 0;
+    if (bbs <= 13) { // 짧은 스택: 올인 아니면 폴드
+      if (!opened) {
+        const pushTop = hu ? Math.min(1, 0.32 + (13 - bbs) * 0.06) : Math.min(0.8, 0.14 + (13 - bbs) * 0.045);
+        if (pct <= pushTop && canRaise) return ['allin'];
+        return toCall === 0 ? ['check'] : ['fold'];
+      }
+      if (eq >= potOdds + 0.02) return canRaise && pct <= 0.1 ? ['allin'] : ['call'];
+      return ['fold'];
+    }
+    if (!opened) {
+      const limpers = room.seats.filter(o => o.inHand && !o.folded && o.bet >= bb && o !== s).length - 1;
+      if (toCall === 0) { // BB 옵션
+        if (canRaise && pct <= (hu ? 0.32 : 0.14)) return R(clampT(bb * (3.5 + Math.max(0, limpers))));
+        return ['check'];
+      }
+      const openTop = hu ? 0.82 : opps.length === 2 ? 0.42 : 0.28;
+      if (pct <= openTop && canRaise) return R(clampT(bb * (hu ? 2.5 : 3) + Math.max(0, limpers) * bb));
+      return ['fold'];
+    }
+    if (nr === 1) {
+      if (canRaise && pct <= 0.07) return R(clampT(hd.cb * 3.2));
+      if (canRaise && hu && pct > 0.12 && pct < 0.3 && rnd() < 0.22 * (0.6 + fold)) return R(clampT(hd.cb * 3.2));
+      if (eq >= potOdds + (hu ? -0.03 : 0.04)) return ['call'];
+      return ['fold'];
+    }
+    if (canRaise && pct <= 0.022) return ['allin'];
+    if (eq >= potOdds + 0.03) return ['call'];
+    return ['fold'];
+  }
+  const d = drawInfo(hI, bI);
+  const drawy = d.fd || d.oe;
+  const spr = effStack / Math.max(1, pot);
+  const iAgg = hd.pfAgg === s.id;
+  if (toCall === 0) {
+    if (canRaise) {
+      const valueT = hu ? 0.6 : 0.67;
+      if (eq >= 0.84 && spr < 2.2) return ['allin'];
+      if (eq >= valueT) return R(betPot(eq > 0.8 ? (st === 'river' ? 0.95 : 0.75) : 0.58));
+      if (st === 'flop' && iAgg && hu && rnd() < 0.5 + ex * (fold - 0.42)) return R(betPot(0.35));
+      if (st !== 'river' && drawy && rnd() < 0.55) return R(betPot(0.6));
+      const bl = Math.max(0.03, Math.min(0.42, 0.1 + ex * (fold - 0.42) * 1.2)) * (st === 'river' ? 1 : 0.7);
+      if (eq < 0.35 && rnd() < bl) return R(betPot(st === 'river' ? 0.75 : 0.55));
+    }
+    return ['check'];
+  }
+  const margin = st === 'flop' ? 0.02 : st === 'turn' ? 0.03 : 0;
+  const implied = st !== 'river' && drawy ? 0.05 : 0;
+  if (canRaise) {
+    if (eq >= 0.84 && (spr < 3 || rnd() < 0.45)) return ['allin'];
+    if (eq >= (st === 'river' ? 0.74 : 0.7) && rnd() < 0.75) return R(clampT(hd.cb * 2.8 + (pot - bets) * 0.3));
+    if (st === 'flop' && d.fd && d.oe && rnd() < 0.5) return R(clampT(hd.cb * 3));
+    if (st !== 'river' && drawy && hu && rnd() < 0.14) return R(clampT(hd.cb * 2.8));
+  }
+  if (eq + implied >= potOdds + margin) return ['call'];
+  return ['fold'];
 }
 
 /* ---------------- 행운 모드 (비밀) ---------------- */
@@ -324,7 +523,25 @@ class Room {
   newSeat(pid, name) {
     return { pid, id: crypto.randomBytes(4).toString('hex'), name, stack: this.settings.stack, bet: 0, contrib: 0, folded: false, allIn: false, acted: false, inHand: false, out: false, online: true, offSince: 0, shown: null, best: null, la: '', won: 0, hn: '' };
   }
-  resetSeatHand(s) { Object.assign(s, { popped: false, bet: 0, contrib: 0, folded: false, allIn: false, acted: false, inHand: false, shown: null, best: null, la: '', won: 0, hn: '' }); }
+  resetSeatHand(s) { Object.assign(s, { popped: false, bet: 0, contrib: 0, folded: false, allIn: false, acted: false, inHand: false, shown: null, best: null, la: '', won: 0, hn: '', hx: { pf: '', agg: {}, call: {}, v: 0, r: 0 } }); }
+  // 행동 기록: 이번 판 손패 범위 추정(hx) + 사람 플레이어 습관(opp)
+  noteAct(s, kind, toCall) {
+    const hd = this.hand, st = hd.st, hx = s.hx || (s.hx = { pf: '', agg: {}, call: {}, v: 0, r: 0 });
+    if (kind === 'r') hd.nr = (hd.nr || 0) + 1;
+    if (st === 'pre') {
+      if (kind === 'r') { hx.pf = hd.nr >= 2 ? '3' : 'r'; hd.pfAgg = s.id; }
+      else if (kind === 'c' && !hx.pf) hx.pf = 'c';
+    } else if (kind === 'r') hx.agg[st] = 1; else if (kind === 'c') hx.call[st] = 1;
+    if (s.bot) return;
+    const o = oppStats(this, s.pid);
+    if (st === 'pre') {
+      if ((kind === 'c' || kind === 'r') && !hx.v) { hx.v = 1; o.vpip++; }
+      if (kind === 'r' && !hx.r) { hx.r = 1; o.pfr++; }
+    } else {
+      if (toCall > 0) { o.faced++; if (kind === 'f') o.folds++; }
+      if (kind === 'r') o.bets++; else if (kind === 'c') o.calls++; else if (kind === 'x') o.checks++;
+    }
+  }
   seatOf(pid) { return this.seats.find(s => s.pid === pid); }
   addBot(lv) {
     if (this.seats.length >= 8) return '자리가 꽉 찼어요 (최대 8명)';
@@ -371,14 +588,14 @@ class Room {
       hd.sq++; this.nextAt = Date.now() + 3000; this.dirty = true; return;
     }
     this.msg = '';
-    elig.forEach(i => { this.seats[i].inHand = true; this.seats[i].st0 = this.seats[i].stack; });
+    elig.forEach(i => { this.seats[i].inHand = true; this.seats[i].st0 = this.seats[i].stack; if (!this.seats[i].bot) oppStats(this, this.seats[i].pid).hands++; });
     hd.no++;
     hd.d = this.nextIn(hd.d ?? -1);
     let sbI, bbI;
     if (elig.length === 2) { sbI = hd.d; bbI = this.nextIn(hd.d); } else { sbI = this.nextIn(hd.d); bbI = this.nextIn(sbI); }
     this.pay(this.seats[sbI], this.settings.sb); this.seats[sbI].la = 'SB';
     this.pay(this.seats[bbI], this.settings.bb); this.seats[bbI].la = 'BB';
-    Object.assign(hd, { sbI, bbI, cb: this.settings.bb, mr: this.settings.bb, pot: 0, bd: [], st: 'pre', res: null, deck: newDeck(), holes: {} });
+    Object.assign(hd, { sbI, bbI, cb: this.settings.bb, mr: this.settings.bb, pot: 0, bd: [], st: 'pre', res: null, deck: newDeck(), holes: {}, nr: 0, pfAgg: '' });
     const dealHoles = deck => { const holes = {}; for (let r = 0; r < 2; r++) { let j = hd.d; for (let c = 0; c < elig.length; c++) { j = this.nextIn(j); const pid = this.seats[j].pid; (holes[pid] || (holes[pid] = [])).push(deck.pop()); } } return holes; };
     hd.holes = dealHoles(hd.deck);
     // 행운 모드: 리버까지 가면 이 플레이어가 반드시 혼자 이기도록 덱을 골라요
@@ -425,7 +642,7 @@ class Room {
   act(i, a, amt) {
     const hd = this.hand, s = this.seats[i];
     if (!s || hd.tu !== i || !BETTING.has(hd.st)) return false;
-    const toCall = hd.cb - s.bet;
+    const toCall = hd.cb - s.bet, cb0 = hd.cb;
     if (a === 'fold') { s.folded = true; s.la = '폴드'; }
     else if (a === 'check') { if (toCall > 0) return false; s.la = '체크'; }
     else if (a === 'call') { if (toCall <= 0) s.la = '체크'; else { this.pay(s, toCall); s.la = s.stack === 0 ? '올인' : '콜'; } }
@@ -445,6 +662,7 @@ class Room {
       s.la = s.stack === 0 ? '올인' : (wasZero ? '벳 ' : '레이즈 ') + fmt(target);
     } else return false;
     s.acted = true;
+    try { this.noteAct(s, a === 'fold' ? 'f' : hd.cb > cb0 ? 'r' : toCall > 0 ? 'c' : 'x', toCall); } catch (e) {}
     const live = this.seats.filter(o => o.inHand && !o.folded);
     if (live.length === 1) { this.winByFold(live[0]); return true; }
     const nt = this.findNeed(i, false);
@@ -454,7 +672,7 @@ class Room {
   endStreet() {
     const hd = this.hand;
     this.seats.forEach(o => { hd.pot += o.bet; o.bet = 0; o.acted = false; if (o.inHand && !o.folded && o.la !== '올인') o.la = ''; });
-    hd.cb = 0; hd.mr = this.settings.bb;
+    hd.cb = 0; hd.mr = this.settings.bb; hd.nr = 0;
     if (hd.st === 'river') { this.showdown(); return; }
     const can = this.seats.filter(o => o.inHand && !o.folded && !o.allIn);
     const runout = can.length <= 1;
@@ -759,6 +977,8 @@ class BJRoom extends Room {
     super(code);
     this.game = 'bj';
     this.settings = { stack: 1000, minBet: 20, timer: 30 };
+    // 규칙 스위치 (챌린지 보스 단계마다 바뀜): h17 = 딜러 소프트 17 히트, bjPay = 블랙잭 배당, sur = 서렌더, das = 스플릿 후 더블
+    this.rules = { h17: false, bjPay: 1.5, sur: true, das: true };
     this.shoe = newShoe(BJ_DECKS);
     this.r = this.blankRound(0);
     this.dealerAt = 0; this.betEnd = 0; this.insEnd = 0;
@@ -895,8 +1115,8 @@ class BJRoom extends Room {
     this.dealerAt = Date.now() + 900; this.dirty = true;
   }
   canSplit(s, h) { return s.bj.hands.length < 4 && h.cards.length === 2 && !h.aceSplit && cardVal(h.cards[0]) === cardVal(h.cards[1]) && s.stack >= h.bet && !(h.cards[0][0] === 'A' && s.bj.hands.length > 1); }
-  canDouble(s, h) { return h.cards.length === 2 && !h.aceSplit && s.stack >= h.bet; }
-  canSurrender(s, h) { return s.bj.hands.length === 1 && !h.split && h.cards.length === 2 && !h.dbl; }
+  canDouble(s, h) { return h.cards.length === 2 && !h.aceSplit && s.stack >= h.bet && (this.rules.das || !h.split); }
+  canSurrender(s, h) { return this.rules.sur && s.bj.hands.length === 1 && !h.split && h.cards.length === 2 && !h.dbl; }
   act(i, a) {
     const r = this.r, s = this.seats[i]; if (!s || r.st !== 'play' || r.tu !== i) return false;
     const h = s.bj.hands[r.hi]; if (!h || h.done) return false;
@@ -932,7 +1152,7 @@ class BJRoom extends Room {
     const r = this.r;
     const anyLive = this.seats.some(s => s.bj.inR && this.liveTotals(s).length);
     const dt = bjTotal(r.dl);
-    if (r.dealerBJ || !anyLive || dt.t >= 17) { this.settle(); return; }
+    if (r.dealerBJ || !anyLive || dt.t > 17 || (dt.t === 17 && !(this.rules.h17 && dt.soft))) { this.settle(); return; }
     const fin = c => bjTotal([...r.dl, c]).t;
     let prefs = null;
     if (r.lucky) {
@@ -969,7 +1189,7 @@ class BJRoom extends Room {
         else if (h.sur) { h.res = 'sur'; back = Math.floor(h.bet / 2); }
         else if (t > 21) { h.res = 'bust'; }
         else if (h.nat && dBJ) { h.res = 'push'; back = h.bet; }
-        else if (h.nat) { h.res = 'bj'; back = h.bet + Math.floor(h.bet * 1.5); }
+        else if (h.nat) { h.res = 'bj'; back = h.bet + Math.floor(h.bet * this.rules.bjPay); }
         else if (dBJ) { h.res = 'lose'; }
         else if (dBust || t > d.t) { h.res = 'win'; back = h.bet * 2; }
         else if (t === d.t) { h.res = 'push'; back = h.bet; }
@@ -1068,7 +1288,7 @@ class BJRoom extends Room {
     const dl = r.hide && r.dl.length === 2 ? [r.dl[0], 'back'] : r.dl;
     const dv = r.hide ? (r.dl.length ? bjTotal([r.dl[0]]) : { t: 0, soft: false }) : bjTotal(r.dl);
     return {
-      game: 'bj', code: this.code, status: this.status, set: this.settings, msg: this.msg, rk: this.ranking(),
+      game: 'bj', code: this.code, status: this.status, set: this.settings, rules: this.rules, msg: this.msg, rk: this.ranking(),
       seats: this.seats.map(s => ({
         id: s.id, n: s.name, s: s.stack, o: s.out ? 1 : 0, aw: s.online ? 0 : 1, host: s.pid === this.hostPid ? 1 : 0, bot: s.bot ? 1 : 0, lv: s.bot ? BOT_LEVELS[s.lv].label : '',
         pg: s.pendGive || 0, ir: s.bj.inR ? 1 : 0, want: s.bj.want, ok: s.bj.ok ? 1 : 0, sit: s.bj.sit ? 1 : 0, w: s.bj.net, ins: s.bj.ins, insd: s.bj.insd ? 1 : 0, insr: s.bj.insRes,
@@ -1176,13 +1396,14 @@ class BacRoom extends Room {
   canDropOffline() { return this.safeToRemove() && this.r.st !== 'bet'; }
   removeSeatAt(i) { this.seats.splice(i, 1); }
   onKick() {}
+  minStake() { return 1; } // 챌린지에서는 1,000
 
   startRound() {
     const r = this.r, now = Date.now();
     this.seats.forEach(s => this.resetBac(s));
     const humanHere = this.seats.some(s => !s.bot && s.online);
-    // 바카라는 최소 베팅 없음: 칩이 1개라도 있으면 참여
-    this.seats.forEach(s => { s.out = s.stack < 1; });
+    // 바카라는 최소 베팅 없음: 칩이 1개라도 있으면 참여 (챌린지는 1,000)
+    this.seats.forEach(s => { s.out = s.stack < this.minStake(); });
     const elig = this.seats.filter(s => s.online && !s.out && !s.kicked);
     if (!humanHere || !elig.length) {
       r.st = 'idle'; r.sq++; this.msg = !humanHere ? '접속한 사람이 없어서 쉬는 중이에요' : '베팅할 칩이 있는 사람이 없어요. 방장이 리바이를 해 주세요';
@@ -1272,7 +1493,7 @@ class BacRoom extends Room {
     r.hist = [...(r.hist || []), { w: o.win, pp: o.pp ? 1 : 0, bp: o.bp ? 1 : 0, n: o.win === 'B' ? o.bt : o.pt, nat: (o.pNat || o.bNat) ? 1 : 0 }].slice(-150);
     this.log(`#${r.no} ${r.line}${parts.length ? ' · ' + parts.join(', ') : ''}`);
     r.st = 'show'; r.sq++;
-    this.seats.forEach(s => { s.out = s.stack < 1; });
+    this.seats.forEach(s => { s.out = s.stack < this.minStake(); });
     this.nextAt = now + 6500;
     this.bacBotReactions(o);
     this.dirty = true;
@@ -1358,6 +1579,333 @@ class BacRoom extends Room {
   }
 }
 
+/* ================= 챌린지 (보스 깨기) ================= */
+// 홀덤 · 블랙잭 · 바카라 각각 5단계. 혼자(1:1) 또는 친구들과 같이 보스를 쓰러뜨리면 다음 단계가 열려요.
+// · 참가자는 모두 10,000칩으로 시작 · 홀덤 블라인드 100/200(10판마다 상승) · 블랙잭/바카라 최소 베팅 1,000
+// · 홀덤: 보스 AI의 칩을 0으로 만들면 클리어, 우리 팀이 모두 탈락하면 실패
+// · 블랙잭/바카라: 보스 체력 = 우리 팀이 따내야 할 칩. 정해진 라운드 안에 체력을 0으로 만들면 클리어
+// · 친구랑 같이 하면 체력이 사람 수에 맞춰 늘어나요 (블랙잭 인원^0.7배, 바카라는 모두 같은 카드라 인원 배)
+const CH_START = 10000;
+const CH_INTRO_MS = 5600;
+const CH_BLIND_EVERY = 10;
+const CH_BLINDS = [[100, 200], [200, 400], [300, 600], [500, 1000], [800, 1600], [1000, 2000], [1500, 3000], [2000, 4000], [3000, 6000], [5000, 10000]];
+const CH_GAMES = { holdem: '홀덤', bj: '블랙잭', bac: '바카라' };
+const BJ_STD = { h17: false, bjPay: 1.5, sur: true, das: true };
+const CH_STAGES = {
+  holdem: [
+    { name: '새내기 토끼', emo: '🐰', lv: 'easy', boss: 10000, diff: '쉬움', quote: '포… 포커는 처음인데 살살 해 줘!', skill: '아무 패나 들고 따라와요' },
+    { name: '꾀돌이 여우', emo: '🦊', lv: 'normal', boss: 10000, diff: '보통', quote: '속는 쪽이 지는 거야~ 히히.', skill: '가끔 블러핑을 섞어요' },
+    { name: '카지노 상어', emo: '🦈', lv: 'hard', boss: 12000, diff: '살짝 어려움', quote: '피 냄새가 나는군. 네 칩에서.', skill: '확률 계산이 정확해요 · 보스 칩 1.2배' },
+    { name: '포커페이스 늑대', emo: '🐺', lv: 'pro', boss: 15000, diff: '많이 어려움', quote: '네 손이 떨리는 게 다 보여.', skill: '네 습관을 읽고 손패 범위를 계산해요 · 보스 칩 1.5배' },
+    { name: '수완 드래곤', emo: '🐉', lv: 'boss', boss: 20000, diff: '극악', quote: '여기까지 온 건 칭찬하지. 하지만 여기가 끝이다.', skill: '매 베팅마다 최선의 수 · 습관 완전 분석 · 보스 칩 2배' }
+  ],
+  bj: [
+    { name: '병아리 딜러', emo: '🐣', hp: 3000, rounds: 15, maxBet: 5000, rules: { ...BJ_STD }, diff: '쉬움', quote: '삐약! 카드 나눠 주는 건 자신 있어요!', skill: '기본 규칙 · 딜러 소프트 17 스탠드' },
+    { name: '고양이 딜러', emo: '🐱', hp: 6000, rounds: 15, maxBet: 5000, rules: { ...BJ_STD }, diff: '보통', quote: '냥… 내 앞발은 빠르다냥.', skill: '기본 규칙 · 체력 증가' },
+    { name: '부엉이 딜러', emo: '🦉', hp: 12000, rounds: 15, maxBet: 5000, rules: { ...BJ_STD, h17: true }, diff: '살짝 어려움', quote: '밤새 카드를 세어 왔지. 부엉.', skill: '딜러가 소프트 17에서도 한 장 더 받아요' },
+    { name: '사자 딜러', emo: '🦁', hp: 20000, rounds: 12, maxBet: 5000, rules: { ...BJ_STD, h17: true, sur: false }, diff: '많이 어려움', quote: '도망칠 생각은 버려라. 서렌더는 없다.', skill: '소프트 17 히트 · 서렌더 금지 · 12라운드 제한' },
+    { name: '해골 딜러', emo: '💀', hp: 28000, rounds: 12, maxBet: 5000, rules: { h17: true, bjPay: 1.2, sur: false, das: false }, diff: '극악', quote: '데스 테이블에 온 걸 환영한다… 크크크.', skill: '소프트 17 히트 · 블랙잭 6:5 · 서렌더 금지 · 스플릿 후 더블 금지 · 12라운드 제한' }
+  ],
+  bac: [
+    { name: '판다 뱅커', emo: '🐼', hp: 3000, rounds: 15, maxBet: 5000, diff: '쉬움', quote: '대나무 걸고 한 판? 냠냠.', skill: '기본 규칙' },
+    { name: '호랑이 뱅커', emo: '🐯', hp: 6000, rounds: 15, maxBet: 5000, diff: '보통', quote: '어흥! 내 줄무늬처럼 줄줄이 이겨 주지.', skill: '체력 증가' },
+    { name: '문어 뱅커', emo: '🐙', hp: 12000, rounds: 15, maxBet: 5000, diff: '살짝 어려움', quote: '다리가 여덟 개라 카드도 여덟 덱이지.', skill: '체력 증가' },
+    { name: '독수리 뱅커', emo: '🦅', hp: 17000, rounds: 12, maxBet: 5000, diff: '많이 어려움', quote: '높은 곳에서 네 칩을 노리고 있다.', skill: '체력 크게 증가 · 12라운드 제한' },
+    { name: '바카라 황제', emo: '👑', hp: 22000, rounds: 12, maxBet: 5000, diff: '극악', quote: '짐의 테이블이다. 무릎 꿇어라.', skill: '체력 최대 · 12라운드 안에 쓰러뜨려야 해요' }
+  ]
+};
+const CH_TAUNT = {
+  hurt: ['크윽… 제법이군.', '이, 이럴 리가 없어!', '운이 좋았을 뿐이다!', '아직 끝나지 않았다…', '흥, 간지럽군.'],
+  win: ['크하하! 그 정도로는 안 돼.', '내 테이블에서 이길 수 있을 것 같았나?', '고마워, 칩 잘 받을게~', '다음엔 더 잘해 봐.', '한 판 더 줄까? 후후.'],
+  half: '체력이 절반 남았다고 방심하지 마라!',
+  low: '크아아… 이 몸이 밀리다니!'
+};
+// 화면에 보낼 단계 정보 (챌린지 메뉴에서 씀)
+const CH_INFO_PUB = Object.fromEntries(Object.entries(CH_STAGES).map(([g, L]) => [g, L.map(c => ({ name: c.name, emo: c.emo, diff: c.diff, quote: c.quote, skill: c.skill, boss: c.boss || 0, hp: c.hp || 0, rounds: c.rounds || 0, minBet: 1000, maxBet: c.maxBet || 0 }))]));
+const chHpScale = (per, n, ex) => Math.round(per * Math.pow(n, ex) / 100) * 100;
+
+/* ---- 명예의 전당 기록: 서버 파일 + 접속한 사람들 폰에도 서명된 사본을 보관 ----
+   무료 서버가 재시작돼서 파일이 지워져도, 누군가 다시 접속하면 그 폰에 있던 기록을 서버가 서명 확인 후 되살려요. */
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const HOF_FILE = path.join(DATA_DIR, 'challenge.json');
+const HOF_SECRET = process.env.HOF_SECRET || 'suwan-challenge-hof-2026';
+const HOF = { recs: [], ids: new Set() };
+const recSig = r => crypto.createHmac('sha256', HOF_SECRET).update(JSON.stringify([r.id, r.g, r.st, r.team, r.t, r.n, r.ms])).digest('base64url').slice(0, 24);
+function recClean(x) {
+  if (!x || typeof x !== 'object' || !Array.isArray(x.team)) return null;
+  const r = { id: String(x.id || '').slice(0, 12), g: String(x.g || ''), st: Math.floor(+x.st), team: x.team.slice(0, 8).map(m => [String(m && m[0] || '').slice(0, 24), String(m && m[1] || '').slice(0, 10)]), t: Math.floor(+x.t) || 0, n: Math.floor(+x.n) || 0, ms: Math.floor(+x.ms) || 0 };
+  if (!r.id || !CH_STAGES[r.g] || !(r.st >= 1 && r.st <= 5)) return null;
+  r.sig = recSig(r);
+  return r.sig === String(x.sig || '') ? r : null;
+}
+let hofT = null;
+function hofSaveSoon() {
+  clearTimeout(hofT);
+  hofT = setTimeout(() => {
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); const tmp = HOF_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify({ v: 1, recs: HOF.recs })); fs.renameSync(tmp, HOF_FILE); }
+    catch (e) { console.error('챌린지 기록 저장 실패:', e.message); }
+  }, 1200);
+}
+function hofAdd(r) {
+  if (HOF.ids.has(r.id)) return false;
+  HOF.ids.add(r.id); HOF.recs.push(r); HOF.recs.sort((a, b) => a.t - b.t);
+  hofSaveSoon(); return true;
+}
+function hofLoad() {
+  try { const j = JSON.parse(fs.readFileSync(HOF_FILE, 'utf8')); let k = 0; for (const x of j.recs || []) { const r = recClean(x); if (r && hofAdd(r)) k++; } console.log(`챌린지 기록 ${k}개 불러옴`); }
+  catch (e) { /* 처음 실행이면 파일 없음 */ }
+}
+function chCleared(uid, g) { const set = new Set(); if (!uid) return set; for (const r of HOF.recs) if (r.g === g && r.team.some(m => m[0] === uid)) set.add(r.st); return set; }
+function chMaxOpen(uid, g) { let m = 0; for (const x of chCleared(uid, g)) m = Math.max(m, x); return Math.min(5, m + 1); }
+
+const ChMix = Base => class extends Base {
+  chInit(g, st) { this.ch = { g, st, seq: 0, state: 'ready', team: [], t0: 0, result: null, introUntil: 0, hpMax: 0, base: 0, stk: {}, dmg: 0, net: 0, fresh: [], marks: {} }; this.chApply(); }
+  get cfg() { return CH_STAGES[this.ch.g][this.ch.st - 1]; }
+  chApply() {}
+  addBot() { return '챌린지에서는 AI를 따로 넣을 수 없어요. 보스랑 싸워야 해요!'; }
+  bossSay(t) { const c = this.cfg; const b = this.seats.find(s => s.boss); this.pushChat({ n: `${c.emo} ${c.name}`, sid: b ? b.id : '', t, boss: 1 }); }
+  // 관전 중이던 사람(도전 중에 들어온 사람)을 다음 도전 때 자리에 앉힘
+  chSeatSpectators() {
+    for (const c of this.socks) {
+      if (c.watch || !c.name || this.seatOf(c.pid) || this.banned.has(c.pid)) continue;
+      if (this.seats.filter(s => !s.bot).length >= this.chHumanCap()) break;
+      const seat = this.newSeat(c.pid, c.name); seat.uid = c.uid || ''; this.seats.push(seat);
+      this.log(`${c.name} 도전 합류`);
+    }
+  }
+  chStart() {
+    const now = Date.now(), ch = this.ch;
+    this.chSeatSpectators();
+    this.seats = this.seats.filter(s => !s.bot && !s.kicked && s.online);
+    const humans = this.seats;
+    if (!humans.length) return '접속한 사람이 있어야 도전할 수 있어요';
+    this.chApply();
+    ch.team = humans.map(s => [s.uid || '', s.name]);
+    ch.seq++; ch.state = 'intro'; ch.introUntil = now + CH_INTRO_MS; ch.result = null; ch.t0 = now;
+    ch.dmg = 0; ch.net = 0; ch.fresh = []; ch.marks = {};
+    this.status = 'playing'; this.msg = ''; this.nextAt = 0;
+    this.chSetup(humans);
+    this.statInit();
+    const c = this.cfg;
+    this.log(`⚔️ ${CH_GAMES[ch.g]} 챌린지 STAGE ${ch.st} · ${c.emo} ${c.name} 등장! (${humans.length}명 도전)`);
+    this.dirty = true; return '';
+  }
+  chBossMood(prevHp, hp) { // 체력이 절반·4분의 1 아래로 내려갈 때 한마디
+    const ch = this.ch, m = ch.hpMax;
+    if (!ch.marks.half && prevHp > m / 2 && hp <= m / 2 && hp > 0) { ch.marks.half = 1; setTimeout(() => this.bossSay(CH_TAUNT.half), 1400); return true; }
+    if (!ch.marks.low && prevHp > m / 4 && hp <= m / 4 && hp > 0) { ch.marks.low = 1; setTimeout(() => this.bossSay(CH_TAUNT.low), 1400); return true; }
+    return false;
+  }
+  chEnd(win) {
+    const ch = this.ch, now = Date.now(), c = this.cfg;
+    if (ch.state === 'clear' || ch.state === 'fail') return;
+    ch.state = win ? 'clear' : 'fail'; this.status = 'over'; this.nextAt = 0;
+    const n = this.chNo(), ms = Math.max(0, now - ch.t0 - CH_INTRO_MS);
+    let rec = null;
+    if (win) {
+      const team = ch.team.filter(m => m[0]);
+      const fresh = team.filter(m => !chCleared(m[0], ch.g).has(ch.st));
+      ch.fresh = fresh.map(m => m[1]);
+      if (fresh.length) { rec = { id: crypto.randomBytes(6).toString('base64url'), g: ch.g, st: ch.st, team, t: now, n, ms }; rec.sig = recSig(rec); hofAdd(rec); }
+    }
+    const say = win ? (ch.st === 5 ? '말도 안 돼… 네가 진짜 챔피언이다.' : '크윽… 다음 단계에서 기다리겠다!') : CH_TAUNT.win[randInt(CH_TAUNT.win.length)];
+    ch.result = { win: win ? 1 : 0, n, ms, rec: rec ? rec.id : '', at: now, say };
+    this.log(win ? `🏆 STAGE ${ch.st} CLEAR! ${c.emo} ${c.name} 격파 · ${n}${this.chUnit()} 만에` : `💀 STAGE ${ch.st} 실패… ${c.emo} ${c.name}에게 졌어요`);
+    setTimeout(() => this.bossSay(say), 2200);
+    if (rec) for (const sock of this.socks) sock.emit('hofrec', rec);
+    this.dirty = true;
+  }
+  chHostMax() { const h = this.seatOf(this.hostPid); return chMaxOpen(h && h.uid, this.ch.g); }
+  hostCmd(cmd, arg) {
+    const ch = this.ch;
+    if (cmd === 'start' && this.status === 'lobby') return this.chStart();
+    if (cmd === 'chretry' && this.status === 'over') return this.chStart();
+    if (cmd === 'chnext' && this.status === 'over') {
+      if (ch.state !== 'clear' || ch.st >= 5) return '다음 단계가 없어요';
+      if (ch.st + 1 > this.chHostMax()) return '방장이 이 단계를 깨야 다음 단계를 열 수 있어요';
+      ch.st++; return this.chStart();
+    }
+    if (cmd === 'chstage' && this.status === 'lobby') {
+      const st = Math.floor(+(arg && arg.st));
+      if (!(st >= 1 && st <= 5)) return '';
+      if (st > this.chHostMax()) return '아직 열리지 않은 단계예요';
+      ch.st = st; this.chApply(); this.log(`도전 단계 변경 · STAGE ${st} ${this.cfg.emo} ${this.cfg.name}`); this.dirty = true; return '';
+    }
+    if (cmd === 'lobby') { if (this.status === 'playing') this.log('🏳️ 도전을 포기했어요'); this.chToLobby(); return ''; }
+    if (cmd === 'next') return super.hostCmd(cmd, arg);
+    return '챌린지에서는 바꿀 수 없어요';
+  }
+  tick(now) {
+    if (this.status === 'playing' && this.ch.state === 'intro') {
+      this.commonTick(now);
+      if (now >= this.ch.introUntil) { this.ch.state = 'play'; this.dirty = true; this.chBegin(); }
+      if (this.dirty) { this.dirty = false; this.broadcast(); }
+      return;
+    }
+    super.tick(now);
+  }
+  // 블랙잭/바카라 공통: 라운드가 끝날 때마다 팀 손익 = 보스에게 준 피해
+  chAfterRound() {
+    const ch = this.ch; if (ch.state !== 'play') return;
+    for (const s of this.seats) if (ch.stk[s.id] !== undefined) ch.stk[s.id] = s.stack;
+    const prevHp = this.chHp();
+    const net = Object.values(ch.stk).reduce((a, x) => a + x, 0) - ch.base;
+    ch.dmg = net - ch.net; ch.net = net;
+    const hp = this.chHp();
+    if (hp <= 0) { this.chEnd(true); return; }
+    const spoke = this.chBossMood(prevHp, hp);
+    if (!spoke && Math.abs(ch.dmg) >= this.settings.minBet * 3 && rnd() < 0.35) setTimeout(() => this.bossSay((ch.dmg > 0 ? CH_TAUNT.hurt : CH_TAUNT.win)[randInt(5)]), 1800);
+    if (this.r.no >= this.cfg.rounds) { this.chEnd(false); return; }
+    if (!this.seats.some(s => ch.stk[s.id] !== undefined && s.stack >= this.chMinStake() && s.online)) this.chEnd(false);
+  }
+  chMinStake() { return this.settings.minBet; }
+  chPub() {
+    const ch = this.ch, c = this.cfg, now = Date.now();
+    return {
+      g: ch.g, st: ch.st, seq: ch.seq, state: ch.state,
+      boss: { n: c.name, emo: c.emo, diff: c.diff, quote: c.quote, skill: c.skill },
+      hp: Math.max(0, this.chHp()), hpRaw: this.chHp(), hpMax: ch.hpMax, dmg: ch.dmg, no: this.chNo(), max: c.rounds || 0,
+      intro: ch.state === 'intro' ? Math.max(0, ch.introUntil - now) : 0,
+      result: ch.result, team: ch.team.map(m => m[1]), fresh: ch.fresh, hostMax: this.chHostMax(), info: this.chInfo(), unit: this.chUnit()
+    };
+  }
+  publicState() { const p = super.publicState(); p.ch = this.chPub(); return p; }
+};
+
+class ChHoldem extends ChMix(Room) {
+  constructor(code) { super(code); this.settings = { stack: CH_START, sb: 100, bb: 200, timer: 30 }; }
+  chHumanCap() { return 6; }
+  chUnit() { return '판'; }
+  chNo() { return this.hand.no; }
+  chSetup(humans) {
+    const c = this.cfg;
+    humans.forEach(s => { this.resetSeatHand(s); s.stack = CH_START; s.out = false; s.st0 = CH_START; });
+    const boss = this.newSeat('boss:' + crypto.randomBytes(5).toString('hex'), c.name);
+    Object.assign(boss, { bot: true, lv: c.lv, boss: true, emo: c.emo, stack: c.boss * humans.length });
+    this.seats.push(boss);
+    this.ch.hpMax = boss.stack;
+    this.settings.sb = CH_BLINDS[0][0]; this.settings.bb = CH_BLINDS[0][1];
+    this.hand = this.blankHand(this.hand.sq + 1); this.champ = ''; this.opp = new Map();
+  }
+  chBegin() { this.startHand(); }
+  chHp() { const b = this.seats.find(s => s.boss); return b ? b.stack : 0; }
+  chLvl() { return Math.min(CH_BLINDS.length - 1, Math.floor(Math.max(0, this.hand.no - 1) / CH_BLIND_EVERY)); }
+  chInfo() {
+    const lvl = this.chLvl(), last = lvl >= CH_BLINDS.length - 1;
+    return { sb: this.settings.sb, bb: this.settings.bb, nextIn: last || !this.hand.no ? 0 : CH_BLIND_EVERY - ((this.hand.no - 1) % CH_BLIND_EVERY), nbb: last ? 0 : CH_BLINDS[lvl + 1][1] };
+  }
+  startHand() {
+    if (this.ch.state === 'play') {
+      const lvl = Math.min(CH_BLINDS.length - 1, Math.floor(this.hand.no / CH_BLIND_EVERY)), [sb, bb] = CH_BLINDS[lvl];
+      if (bb !== this.settings.bb) { this.settings.sb = sb; this.settings.bb = bb; if (this.hand.no) this.log(`🔺 블라인드 상승! ${fmt(sb)} / ${fmt(bb)}`); }
+    }
+    super.startHand();
+  }
+  endHand() {
+    this.botReactions();
+    this.seats.forEach(o => { if (o.inHand) this.statHand(o, o.stack - (o.st0 ?? o.stack)); });
+    this.seats.forEach(o => { if (o.stack <= 0) o.out = true; });
+    const boss = this.seats.find(s => s.boss);
+    if (!boss || boss.stack <= 0) { this.chEnd(true); return; }
+    if (!this.seats.some(s => !s.bot && s.stack > 0)) { this.chEnd(false); return; }
+    const prevHp = boss.st0 ?? boss.stack;
+    const spoke = this.chBossMood(prevHp, boss.stack);
+    const diff = boss.stack - prevHp;
+    if (!spoke && boss.inHand && Math.abs(diff) >= this.settings.bb * 8 && rnd() < 0.4) setTimeout(() => this.bossSay((diff > 0 ? CH_TAUNT.win : CH_TAUNT.hurt)[randInt(5)]), 1600);
+    this.nextAt = Date.now() + (this.hand.res && this.hand.res.kind === 'show' ? 8000 : 5500);
+    this.dirty = true;
+  }
+  chToLobby() {
+    this.status = 'lobby'; this.nextAt = 0; this.runoutAt = 0;
+    this.hand = this.blankHand(this.hand.sq + 1); this.champ = ''; this.msg = '';
+    this.seats = this.seats.filter(s => !s.bot && s.online && !s.kicked);
+    this.seats.forEach(s => { this.resetSeatHand(s); s.stack = CH_START; s.out = false; });
+    this.ch.state = 'ready'; this.ch.result = null;
+    this.chSeatSpectators();
+    this.log('도전 대기실로 돌아왔어요'); this.dirty = true;
+  }
+  publicState() {
+    const p = super.publicState();
+    p.seats.forEach((x, k) => { const s = this.seats[k]; if (s && s.boss) { x.boss = 1; x.emo = s.emo; x.lv = this.cfg.diff; } });
+    return p;
+  }
+}
+
+class ChBJ extends ChMix(BJRoom) {
+  constructor(code) { super(code); this.settings = { stack: CH_START, minBet: 1000, timer: 30, maxBet: 5000 }; }
+  chHumanCap() { return 7; }
+  chUnit() { return '라운드'; }
+  chNo() { return this.r.no; }
+  chApply() { const c = this.cfg; this.rules = { ...c.rules }; this.settings.maxBet = c.maxBet; }
+  chSetup(humans) {
+    humans.forEach(s => { this.resetBJ(s); s.stack = CH_START; s.out = false; s.inHand = false; s.bj.want = this.settings.minBet; });
+    this.ch.hpMax = chHpScale(this.cfg.hp, humans.length, 0.7); this.ch.base = CH_START * humans.length;
+    this.ch.stk = Object.fromEntries(humans.map(s => [s.id, CH_START]));
+    this.r = this.blankRound(this.r.sq + 1); this.shoe = newShoe(BJ_DECKS);
+  }
+  chBegin() { this.startRound(); }
+  chHp() { return this.ch.hpMax - this.ch.net; }
+  chInfo() { return { minBet: this.settings.minBet, maxBet: this.settings.maxBet, rules: this.rules }; }
+  startRound() { super.startRound(); for (const s of this.seats) if (s.bj.inR) s.bj.want = Math.min(s.bj.want, this.settings.maxBet); }
+  bjMsg(pid, msg) {
+    if (this.r.st === 'bet' && String(msg && msg.a) === 'betok') {
+      const x = Math.floor(+msg.x || 0);
+      if (x > this.settings.maxBet) { msg = { ...msg, x: this.settings.maxBet }; tell(pid, 'err', `이 보스 테이블의 최대 베팅은 ${fmt(this.settings.maxBet)}이라 그만큼만 걸었어요`); }
+    }
+    super.bjMsg(pid, msg);
+  }
+  settle() { super.settle(); this.chAfterRound(); }
+  chToLobby() {
+    this.status = 'lobby'; this.nextAt = 0; this.dealerAt = 0;
+    this.r = this.blankRound(this.r.sq + 1); this.msg = '';
+    this.seats = this.seats.filter(s => !s.bot && s.online && !s.kicked);
+    this.seats.forEach(s => { this.resetBJ(s); s.stack = CH_START; s.out = false; s.inHand = false; });
+    this.ch.state = 'ready'; this.ch.result = null;
+    this.chSeatSpectators();
+    this.log('도전 대기실로 돌아왔어요'); this.dirty = true;
+  }
+}
+
+class ChBac extends ChMix(BacRoom) {
+  constructor(code) { super(code); this.settings = { stack: CH_START, minBet: 1000, timer: 20, maxBet: 5000 }; }
+  chHumanCap() { return 7; }
+  chUnit() { return '라운드'; }
+  chNo() { return this.r.no; }
+  minStake() { return this.settings.minBet; }
+  chApply() { this.settings.maxBet = this.cfg.maxBet; }
+  chSetup(humans) {
+    humans.forEach(s => { this.resetBac(s); s.stack = CH_START; s.out = false; });
+    this.ch.hpMax = chHpScale(this.cfg.hp, humans.length, 1); this.ch.base = CH_START * humans.length;
+    this.ch.stk = Object.fromEntries(humans.map(s => [s.id, CH_START]));
+    this.r = this.blankRound(this.r.sq + 1); this.r.hist = []; this.shoe = newShoe(BAC_DECKS); this.shoeNo = 1;
+  }
+  chBegin() { this.startRound(); }
+  chHp() { return this.ch.hpMax - this.ch.net; }
+  chInfo() { return { minBet: this.settings.minBet, maxBet: this.settings.maxBet }; }
+  bacMsg(pid, msg) {
+    const s = this.seatOf(pid);
+    if (s && this.r.st === 'bet' && String(msg && msg.a) === 'betok') {
+      const src = msg.bets && typeof msg.bets === 'object' ? msg.bets : {};
+      const sum = BAC_SPOTS.reduce((a, k) => a + Math.max(0, Math.floor(+src[k] || 0)), 0);
+      if (sum && sum < this.settings.minBet) { tell(pid, 'err', `챌린지는 한 판에 최소 ${fmt(this.settings.minBet)} 이상 걸어야 해요`); return; }
+      if (sum > this.settings.maxBet) { tell(pid, 'err', `이 보스 테이블은 한 판 최대 ${fmt(this.settings.maxBet)}까지예요`); return; }
+    }
+    super.bacMsg(pid, msg);
+  }
+  settle() { super.settle(); this.chAfterRound(); }
+  chToLobby() {
+    this.status = 'lobby'; this.nextAt = 0;
+    this.r = this.blankRound(this.r.sq + 1); this.r.hist = []; this.msg = '';
+    this.seats = this.seats.filter(s => !s.bot && s.online && !s.kicked);
+    this.seats.forEach(s => { this.resetBac(s); s.stack = CH_START; s.out = false; });
+    this.ch.state = 'ready'; this.ch.result = null;
+    this.chSeatSpectators();
+    this.log('도전 대기실로 돌아왔어요'); this.dirty = true;
+  }
+}
+const CH_CLASS = { holdem: ChHoldem, bj: ChBJ, bac: ChBac };
+
+
 /* ---------------- 접속(SSE 스트림) ---------------- */
 const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, n);
 const clients = new Map(); // pid -> Set<Client>
@@ -1385,14 +1933,23 @@ function enter(c, room, name) {
   if (room.banned.has(c.pid)) { c.emit('nojoin', '방장이 내보낸 방이라 다시 들어갈 수 없어요'); return; }
   if (c.code && c.code !== room.code) leaveCurrent(c);
   c.code = room.code; c.watch = false;
+  if (name) c.name = name;
   room.socks.add(c);
   const pid = c.pid;
   let seat = room.seatOf(pid);
+  const chBusy = room.ch && (room.status !== 'lobby' || room.seats.filter(s => !s.bot).length >= room.chHumanCap());
   if (seat) {
     seat.online = true;
     if (name && seat.name !== name) seat.name = name;
+    if (c.uid && !seat.uid) seat.uid = c.uid;
+  } else if (chBusy) {
+    room.dirty = true; room.tick(Date.now());
+    c.emit('chatlog', room.chat);
+    c.emit('err', room.status !== 'lobby' ? '지금 보스와 싸우는 중이라 관전으로 들어왔어요. 다음 도전부터 같이 해요!' : '도전 인원이 꽉 찼어요. 관전으로 들어왔어요');
+    return;
   } else if (room.seats.length < 8) {
     seat = room.newSeat(pid, name);
+    seat.uid = c.uid || '';
     room.seats.push(seat);
     if (room.status === 'playing') room.statAdd(seat);
     room.log(`${name} 입장${room.status === 'playing' ? ' · 다음 핸드부터 참여' : ''}`);
@@ -1418,7 +1975,7 @@ function adminList() {
     const no = r.r ? r.r.no || 0 : (r.hand && r.hand.no) || 0;
     const host = r.seats.find(s => s.pid === r.hostPid);
     return {
-      code: r.code, game: r.game || 'holdem', g: GAME_KO[r.game || 'holdem'], st: r.status, no,
+      code: r.code, game: r.game || 'holdem', g: GAME_KO[r.game || 'holdem'] + (r.ch ? ` 챌린지 ${r.ch.st}단계` : ''), st: r.status, no,
       host: host ? host.name : '',
       ppl: r.seats.filter(s => !s.kicked).map(s => ({ n: s.name, bot: s.bot ? 1 : 0, s: s.stack, on: s.bot || s.online ? 1 : 0 })),
       watch: [...r.socks].filter(c => !c.watch).length,
@@ -1434,7 +1991,29 @@ function handle(msg) {
   const cs = clientsOf(pid);
   if (pid.length < 12 || !cs.size) return;
   const type = String(msg.type || '');
-  if (type === 'create') {
+  if (type === 'create' || type === 'join') for (const c of cs) c.uid = clean(msg.uid, 24);
+  if (type === 'create' && msg.ch && typeof msg.ch === 'object') {
+    // 챌린지 방 만들기 (solo면 바로 시작)
+    const name = clean(msg.name, 10) || '도전자';
+    const g = String(msg.ch.g || ''), st = Math.floor(+msg.ch.st);
+    if (!CH_STAGES[g] || !(st >= 1 && st <= 5)) return;
+    const uid = clean(msg.uid, 24);
+    if (st > chMaxOpen(uid, g)) { tell(pid, 'nojoin', `${CH_GAMES[g]} ${st}단계는 아직 잠겨 있어요. 앞 단계를 먼저 깨 주세요`); return; }
+    let code; do { code = Array.from({ length: 5 }, () => CODE_ABC[randInt(CODE_ABC.length)]).join(''); } while (rooms.has(code));
+    const room = new CH_CLASS[g](code); room.chInit(g, st); rooms.set(code, room);
+    room.hostPid = pid;
+    room.log(`${CH_GAMES[g]} 챌린지 방이에요. 코드 ${code}를 친구에게 보내면 같이 도전할 수 있어요`);
+    for (const c of cs) enter(c, room, name);
+    if (msg.solo) room.hostCmd('start');
+    room.tick(Date.now());
+  } else if (type === 'hof') {
+    tell(pid, 'hof', { recs: HOF.recs });
+  } else if (type === 'hofsync') {
+    // 폰에 남아 있던 기록 되살리기 (서명이 맞는 것만)
+    const list = Array.isArray(msg.recs) ? msg.recs.slice(0, 30) : [];
+    let k = 0; for (const x of list) { const r = recClean(x); if (r && hofAdd(r)) k++; }
+    if (k) console.log(`챌린지 기록 ${k}개 복구`);
+  } else if (type === 'create') {
     const name = clean(msg.name, 10) || '방장';
     let code; do { code = Array.from({ length: 5 }, () => CODE_ABC[randInt(CODE_ABC.length)]).join(''); } while (rooms.has(code));
     const room = msg.game === 'bj' ? new BJRoom(code) : msg.game === 'bac' ? new BacRoom(code) : new Room(code); rooms.set(code, room);
@@ -1493,6 +2072,7 @@ function handle(msg) {
   } else if (type === 'secret') {
     const room = roomOf(pid); if (!room) return;
     const seat = room.seatOf(pid); if (!seat) return;
+    if (room.ch) { tell(pid, 'err', '챌린지에서는 쓸 수 없어요. 실력으로 깨야 명예의 전당에 올라가요!'); return; }
     const f = pwFails.get(pid) || { n: 0, until: 0 }; const now = Date.now();
     if (now < f.until) { tell(pid, 'err', '잠시 후 다시 시도해 주세요'); return; }
     if (String(msg.pw || '') !== LUCKY_PW) { f.n++; if (f.n >= 5) { f.n = 0; f.until = now + 60000; } pwFails.set(pid, f); tell(pid, 'secret', { ok: 0 }); return; }
@@ -1520,6 +2100,7 @@ function handle(msg) {
       const seat = room.seats.find(s => s.id === String(msg.arg && msg.arg.id || ''));
       const amt = Math.floor(+(msg.arg && msg.arg.amt) || 0);
       if (!seat || seat.kicked) return;
+      if (room.ch) { tell(pid, 'err', '챌린지에서는 칩을 줄 수 없어요'); return; }
       if (room.status !== 'playing') { tell(pid, 'err', '게임을 시작한 뒤에 칩을 줄 수 있어요'); return; }
       // 금액 제한 없음 (계산이 틀어지지 않는 선인 1000조까지만 막음)
       if (amt < 1) { tell(pid, 'err', '줄 칩 수를 입력해 주세요'); return; }
@@ -1557,7 +2138,7 @@ const server = http.createServer((req, res) => {
     const c = new Client(pid, res);
     if (!clients.has(pid)) clients.set(pid, new Set());
     clients.get(pid).add(c);
-    c.emit('hello', { t: Date.now(), emojis: EMOJIS });
+    c.emit('hello', { t: Date.now(), emojis: EMOJIS, hof: HOF.recs.map(r => r.id), ch: CH_INFO_PUB });
     const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch (e) {} }, 15000);
     req.on('close', () => {
       clearInterval(ka); c.alive = false;
@@ -1592,6 +2173,7 @@ setInterval(() => {
 }, 250);
 
 server.keepAliveTimeout = 65000;
+hofLoad();
 if (require.main === module) server.listen(PORT, () => console.log(`수완 종합게임 서버 실행 중: http://localhost:${PORT}`));
 
-module.exports = { BJRoom, BacRoom, bacPlay, bacReturn, bacNet, bjTotal, basicStrategy, Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };
+module.exports = { BOT_LEVELS, ChHoldem, ChBJ, ChBac, CH_STAGES, CH_CLASS, HOF, hofAdd, recSig, recClean, chMaxOpen, proDecide, PRE, BJRoom, BacRoom, bacPlay, bacReturn, bacNet, bjTotal, basicStrategy, Room, rooms, server, bestHand, handName, cmpScore, eval5, equity, botDecide, eval7i, CARD_INT };
