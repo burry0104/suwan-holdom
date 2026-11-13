@@ -551,12 +551,12 @@ button{cursor:pointer;touch-action:manipulation}
 .chnode .nm small{font-family:var(--f-num);letter-spacing:.14em;color:var(--gold);font-size:13px}
 .chnode .nm b{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .diff{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid currentColor;font-weight:600;letter-spacing:.02em}
-.diff.d1{color:#7fd8a4}.diff.d2{color:#9fc8ff}.diff.d3{color:#f3c45a}.diff.d4{color:#ff9a5c}.diff.d5{color:#ff5a4e;background:rgba(224,69,58,.14);text-shadow:0 0 8px rgba(224,69,58,.6)}
+.diff.d1{color:#7fd8a4}.diff.d2{color:#9fc8ff}.diff.d3{color:#f3c45a}.diff.d4{color:#ff9a5c}.diff.d5{color:#ff5a4e;background:rgba(224,69,58,.14);text-shadow:0 0 8px rgba(224,69,58,.6)}.diff.d6{color:#e07bff;background:rgba(150,40,200,.2);text-shadow:0 0 10px rgba(200,60,255,.8)}
 .chnode .stt{font-size:12px;font-weight:600;white-space:nowrap}
 .chnode .stt.clear{color:var(--ok)}.chnode .stt.open{color:var(--gold)}.chnode .stt.lock{color:var(--muted)}
 .chnode.lock{opacity:.5;cursor:not-allowed}.chnode.lock .em{filter:grayscale(1) brightness(.6)}
 .chnode.sel{border-color:var(--gold);background:linear-gradient(90deg,rgba(243,196,90,.12),rgba(243,196,90,.02))}
-.chnode.s5 .em{box-shadow:inset 0 0 0 2px rgba(224,69,58,.7),0 0 18px rgba(224,69,58,.35)}
+.chnode.s5 .em{box-shadow:inset 0 0 0 2px rgba(224,69,58,.7),0 0 18px rgba(224,69,58,.35)}.chnode.s6 .em{box-shadow:inset 0 0 0 2px rgba(200,60,255,.8),0 0 24px rgba(200,60,255,.5)}
 .chdetail{border-radius:18px;border:1px solid rgba(243,196,90,.35);background:radial-gradient(120% 120% at 100% 0%,rgba(224,69,58,.18),transparent 60%),var(--panel);padding:16px;display:flex;flex-direction:column;gap:12px}
 .chdetail .hd{display:flex;align-items:center;gap:12px}
 .chdetail .hd .em{font-size:44px;filter:drop-shadow(0 0 14px rgba(224,69,58,.45))}
@@ -1975,13 +1975,14 @@ function bacSounds(p,v){
 /* ================= 챌린지 (보스 깨기) ================= */
 const CH_G=['holdem','bj','bac'];
 const CH_GNAME={holdem:'홀덤',bj:'블랙잭',bac:'바카라'},CH_GICO={holdem:'♠️',bj:'🂡',bac:'🀄'};
-const CH_POINTS=[100,200,350,550,800];
+const CH_POINTS=[100,200,350,550,800,1500];
+const chLast=g=>(CHS.info&&CHS.info[g]&&CHS.info[g].length)||5; // 게임별 마지막 단계 (홀덤은 6단계 히든 관문)
 let UID=store.get('hd-uid');if(!UID){UID=rid(16);store.set('hd-uid',UID)}
 const CHS={g:store.get('hd-chg')||'holdem',sel:0,view:'map',hofTab:'all',info:store.get('hd-chinfo')||null,recs:(store.get('hd-hof')||[]).filter(r=>r&&r.id)};
 if(!CH_G.includes(CHS.g))CHS.g='holdem';
 function hofMerge(list){const ids=new Set(CHS.recs.map(r=>r.id));let k=0;for(const r of list||[])if(r&&r.id&&!ids.has(r.id)){CHS.recs.push(r);ids.add(r.id);k++}if(k){CHS.recs.sort((a,b)=>a.t-b.t);store.set('hd-hof',CHS.recs)}return k}
 function myCleared(g,uid){const set=new Set();for(const r of CHS.recs)if(r.g===g&&r.team.some(m=>m[0]===(uid||UID)))set.add(r.st);return set}
-function myOpen(g){let m=0;for(const x of myCleared(g))m=Math.max(m,x);return Math.min(5,m+1)}
+function myOpen(g){let m=0;for(const x of myCleared(g))m=Math.max(m,x);return Math.min(chLast(g),m+1)}
 function diffCls(st){return 'diff d'+st}
 const msTxt=ms=>{const s=Math.round((ms||0)/1000),m=Math.floor(s/60);return m?`${m}분 ${s%60}초`:`${s}초`};
 const dateTxt=t=>{const d=new Date(t);return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`};
@@ -2007,20 +2008,20 @@ function renderChal(){
   const info=CHS.info;
   if(CHS.view==='hof'){el.innerHTML=hofHTML();bindHof();return}
   const g=CHS.g,cl=myCleared(g),open=myOpen(g);
-  if(!CHS.sel||CHS.sel>open)CHS.sel=Math.min(open,5);
-  const games=CH_G.map(x=>{const c=myCleared(x);const n=[1,2,3,4,5].filter(s=>c.has(s)).length;return `<button type="button" class="chg" data-chg="${x}" aria-pressed="${x===g}"><span class="gi">${CH_GICO[x]}</span><b>${CH_GNAME[x]}</b><span class="stars">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>${c.has(5)?'<span class="crownx" title="5단계 클리어">👑</span>':''}</button>`}).join('');
+  if(!CHS.sel||CHS.sel>open)CHS.sel=Math.min(open,chLast(g));
+  const games=CH_G.map(x=>{const c=myCleared(x);const n=[1,2,3,4,5].filter(s=>c.has(s)).length;return `<button type="button" class="chg" data-chg="${x}" aria-pressed="${x===g}"><span class="gi">${CH_GICO[x]}</span><b>${CH_GNAME[x]}</b><span class="stars">${'★'.repeat(n)}<i>${'★'.repeat(5-n)}</i></span>${c.has(5)?'<span class="crownx" title="5단계 클리어">👑</span>':''}${c.has(6)?'<span class="crownx" title="히든 6단계 클리어">👹</span>':''}</button>`}).join('');
   let path='',detail='';
   if(!info){path='<div class="chempty">서버에 연결하는 중이에요… (처음엔 1분쯤 걸릴 수 있어요)</div>'}
   else{
     const L=info[g];
     path=L.map((b,k)=>{const st=k+1,done=cl.has(st),lock=st>open;
-      return `<button type="button" class="chnode${lock?' lock':''}${CHS.sel===st?' sel':''}${st===5?' s5':''}" data-st="${st}"${lock?' aria-disabled="true"':''}><span class="em">${lock?'🔒':b.emo}</span><span class="nm"><small>STAGE ${st}</small><b>${esc(b.name)}</b><span><span class="${diffCls(st)}">${esc(b.diff)}</span></span></span><span class="stt ${done?'clear':lock?'lock':'open'}">${done?'CLEAR ✓':lock?'잠김':'도전 가능'}</span></button>`}).join('');
+      return `<button type="button" class="chnode${lock?' lock':''}${CHS.sel===st?' sel':''}${st===5?' s5':''}${st===6?' s6':''}" data-st="${st}"${lock?' aria-disabled="true"':''}><span class="em">${lock?'🔒':b.emo}</span><span class="nm"><small>STAGE ${st}</small><b>${esc(b.name)}</b><span><span class="${diffCls(st)}">${esc(b.diff)}</span></span></span><span class="stt ${done?'clear':lock?'lock':'open'}">${done?'CLEAR ✓':lock?'잠김':'도전 가능'}</span></button>`}).join('');
     const b=L[CHS.sel-1],st=CHS.sel;
     const rules=g==='holdem'
       ?[['내 시작 칩','10,000'],['블라인드','100 / 200'],['블라인드 상승','10판마다'],['보스 칩 (1명 기준)',fmt(b.boss)]]
       :[['내 시작 칩','10,000'],['베팅',`${fmt(b.minBet)} ~ ${fmt(b.maxBet)}`],['보스 체력 (1명 기준)',fmt(b.hp)],['제한',`${b.rounds}라운드`]];
     detail=`<div class="chdetail" id="chDetail">
-      <div class="hd"><span class="em">${b.emo}</span><div><small class="num" style="letter-spacing:.16em;color:var(--gold)">STAGE ${st}${st===5?' · FINAL BOSS':''}</small><h3>${esc(b.name)}</h3><span class="${diffCls(st)}">${esc(b.diff)}</span></div></div>
+      <div class="hd"><span class="em">${b.emo}</span><div><small class="num" style="letter-spacing:.16em;color:var(--gold)">STAGE ${st}${st===6?' · HIDDEN LAST GATE':st===chLast(g)?' · FINAL BOSS':''}</small><h3>${esc(b.name)}</h3><span class="${diffCls(st)}">${esc(b.diff)}</span></div></div>
       <p class="quote">“${esc(b.quote)}”</p>
       <div class="chrules">${rules.map(([k,v])=>`<div><small>${k}</small><b>${v}</b></div>`).join('')}<div style="grid-column:1/-1"><small>보스 특징</small><b class="kr">${esc(b.skill)}</b></div></div>
       <div class="hint" style="font-size:12.5px;color:var(--muted)">${g==='holdem'?'보스의 칩을 0으로 만들면 클리어! 우리 팀이 모두 탈락하면 실패예요. 친구랑 하면 보스 칩도 인원만큼 늘어나요.':`정해진 라운드 안에 우리 팀이 딴 칩으로 보스 체력을 0으로 만들면 클리어! 칩이 ${fmt(b.minBet)} 아래로 떨어지면 탈락이에요. 친구랑 하면 체력도 늘어나요.`}</div>
@@ -2056,9 +2057,9 @@ function hofHTML(){
       :'<div class="chempty">아직 챌린지를 깬 사람이 없어요. 첫 번째 주인공이 되어 보세요!</div>';
   }else{
     const hg=CHS.hofG||'all';
-    const list=CHS.recs.filter(r=>r.st===5&&(hg==='all'||r.g===hg));
+    const list=CHS.recs.filter(r=>r.st>=5&&(hg==='all'||r.g===hg));
     const order={};
-    body=list.length?`<div class="hof">${list.map(r=>{order[r.g]=(order[r.g]||0)+1;const no=order[r.g];const b=CHS.info&&CHS.info[r.g]?CHS.info[r.g][4]:null;return `<div class="hofcard${no===1?' r1':''}"><span class="no">${no===1?'👑':'#'+no}</span><div><div class="who">${r.team.map(m=>esc(m[1])).join(', ')}</div><div class="meta">${CH_GNAME[r.g]} ${no}번째 정복 · ${dateTxt(r.t)} · ${fmt(r.n)}${r.g==='holdem'?'판':'라운드'} · ${msTxt(r.ms)}${r.team.length>1?` · ${r.team.length}명 팀`:''}</div></div><span class="gm">${b?b.emo:CH_GICO[r.g]}</span></div>`}).join('')}</div>`
+    body=list.length?`<div class="hof">${list.map(r=>{const ok=r.g+r.st;order[ok]=(order[ok]||0)+1;const no=order[ok];const b=CHS.info&&CHS.info[r.g]?CHS.info[r.g][r.st-1]:null;return `<div class="hofcard${no===1?' r1':''}"><span class="no">${no===1?'👑':'#'+no}</span><div><div class="who">${r.team.map(m=>esc(m[1])).join(', ')}</div><div class="meta">${CH_GNAME[r.g]}${r.st===6?' 👹 히든 관문':''} ${no}번째 정복 · ${dateTxt(r.t)} · ${fmt(r.n)}${r.g==='holdem'?'판':'라운드'} · ${msTxt(r.ms)}${r.team.length>1?` · ${r.team.length}명 팀`:''}</div></div><span class="gm">${b?b.emo:CH_GICO[r.g]}</span></div>`}).join('')}</div>`
       :`<div class="chempty">${hg==='all'?'':CH_GNAME[hg]+' '}5단계 최종 보스를 쓰러뜨린 사람이 아직 없어요.<br>처음으로 깨면 여기에 영원히 이름이 남아요!</div>`;
   }
   return `${tabs}${body}<button class="btn ghost chhofbtn" type="button" id="chBackMap">⚔️ 도전하러 가기</button>`;
@@ -2112,7 +2113,7 @@ function chDockHTML(v){
   if(v.status==='lobby'){
     const team=v.seats.filter(s=>!s.bot).map(s=>`<span>${s.host?'👑 ':''}${esc(s.n)}${s.aw?' (연결 끊김)':''}</span>`).join('');
     if(v.isHost){
-      const picks=[1,2,3,4,5].map(st=>`<button class="btn sm${st===ch.st?' sel':''}" data-chst="${st}"${st>ch.hostMax?' disabled title="아직 잠김"':''}>${st>ch.hostMax?'🔒':st}</button>`).join('');
+      const picks=Array.from({length:chLast(ch.g)},(_,k)=>k+1).map(st=>`<button class="btn sm${st===ch.st?' sel':''}" data-chst="${st}"${st>ch.hostMax?' disabled title="아직 잠김"':''}>${st>ch.hostMax?'🔒':st}</button>`).join('');
       return `<div class="chdock"><div class="stagepick"><span class="lbl">단계</span>${picks}</div><div class="team">${team}</div>
         <div class="waitmsg">친구가 코드로 들어오면 같이 싸워요. 준비되면 시작!</div>
         <div class="row" style="justify-content:flex-end;gap:8px"><button class="btn ghost" id="chMenuBtn">챌린지 메뉴</button><button class="btn blood" id="startBtn" style="padding:12px 22px">⚔️ 도전 시작</button></div></div>`;
@@ -2123,7 +2124,7 @@ function chDockHTML(v){
   const r=ch.result||{},win=!!r.win;
   let acts='';
   if(v.isHost){
-    acts=`<div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap">${win&&ch.st<5?`<button class="btn blood" id="chNext">다음 단계 ▶</button>`:''}<button class="btn ${win?'ghost':'brass'}" id="chRetry">🔁 다시 도전</button><button class="btn ghost" id="chLobby">대기실로</button><button class="btn ghost" id="chResOpen">결과 보기</button></div>`;
+    acts=`<div class="row" style="justify-content:flex-end;gap:8px;flex-wrap:wrap">${win&&ch.st<chLast(ch.g)?`<button class="btn blood" id="chNext">다음 단계 ▶</button>`:''}<button class="btn ${win?'ghost':'brass'}" id="chRetry">🔁 다시 도전</button><button class="btn ghost" id="chLobby">대기실로</button><button class="btn ghost" id="chResOpen">결과 보기</button></div>`;
   }else acts=`<div class="row" style="justify-content:flex-end;gap:8px"><button class="btn ghost" id="chResOpen">결과 보기</button></div>`;
   return `<div class="chdock"><div class="waitmsg">${win?`🏆 <b>STAGE ${ch.st} 클리어!</b>`:`💀 <b>${esc(b.n)}</b>에게 졌어요.`} ${v.isHost?'다음 행동을 골라 주세요.':'방장이 고르는 중이에요.'}</div>${acts}</div>`;
 }
@@ -2145,12 +2146,12 @@ function chIntro(v){
   const ch=v.ch,b=ch.boss,el=$('#chIntro');
   if(S.introSeq===ch.seq)return;S.introSeq=ch.seq;
   if(ch.intro<900)return; // 늦게 들어왔으면 생략
-  const fin=ch.st===5;
+  const fin=ch.st>=5;
   el.className='chintro shake'+(fin?' final':'');
   const hpTxt=ch.g==='holdem'?`보스 칩 ${fmt(ch.hpMax)}`:`보스 체력 ${fmt(ch.hpMax)} · ${ch.max}라운드`;
   el.innerHTML=`<div class="rays"></div><div class="flash"></div><div class="ci">
     <div class="kick">${CH_GNAME[ch.g]} CHALLENGE</div>
-    <div class="stg">STAGE ${ch.st}</div>${fin?'<div class="fb">⚠ FINAL BOSS ⚠</div>':''}
+    <div class="stg">STAGE ${ch.st}</div>${fin?`<div class="fb">${ch.st===6?'☠ 역대급 마지막 관문 · 승률 5% ☠':'⚠ FINAL BOSS ⚠'}</div>`:''}
     <div class="bigem">${b.emo}</div>
     <div class="bname">${esc(b.n)}</div><span class="${diffCls(ch.st)}">${esc(b.diff)}</span>
     <div class="q">“${esc(b.quote)}”</div>
@@ -2173,16 +2174,17 @@ function chResultShow(v,force){
   const mine=v.me>=0;
   const nb=CHS.info&&CHS.info[ch.g]&&CHS.info[ch.g][ch.st];
   let unlock='';
-  if(win&&ch.st===5)unlock=`<div class="unlock hof">🏛 명예의 전당 등록!${ch.fresh&&ch.fresh.length?'<br><small style="font-weight:500">'+ch.fresh.map(esc).join(', ')+'</small>':''}</div>`;
+  if(win&&ch.st===6)unlock=`<div class="unlock hof">👹 5%의 기적! 전설로 명예의 전당 등록!${ch.fresh&&ch.fresh.length?'<br><small style="font-weight:500">'+ch.fresh.map(esc).join(', ')+'</small>':''}</div>`;
+  else if(win&&ch.st===5)unlock=`<div class="unlock hof">🏛 명예의 전당 등록!${ch.fresh&&ch.fresh.length?'<br><small style="font-weight:500">'+ch.fresh.map(esc).join(', ')+'</small>':''}</div>`;
   else if(win&&nb)unlock=`<div class="unlock">🔓 STAGE ${ch.st+1} 열림 · ${nb.emo} ${esc(nb.name)} <span class="${diffCls(ch.st+1)}">${esc(nb.diff)}</span></div>`;
   const stats=`<div class="stats"><span><b>${fmt(r.n)}</b>${ch.unit||''} ${win?'만에 클리어':'동안 싸움'}</span><span>걸린 시간 <b>${msTxt(r.ms)}</b></span>${ch.team.length>1?`<span>${ch.team.length}명 팀</span>`:''}</div>`;
-  const acts=v.isHost?`<div class="acts">${win&&ch.st<5?'<button class="btn blood" data-ra="chnext" style="padding:13px">다음 단계 도전 ▶</button>':''}<div class="row" style="gap:8px"><button class="btn ${win&&ch.st<5?'ghost':'brass'}" data-ra="chretry">🔁 다시 도전</button><button class="btn ghost" data-ra="menu">챌린지 메뉴</button></div></div>`
+  const acts=v.isHost?`<div class="acts">${win&&ch.st<chLast(ch.g)?`<button class="btn blood" data-ra="chnext" style="padding:13px">${ch.st===5?'👹 히든 마지막 관문 도전 ▶':'다음 단계 도전 ▶'}</button>`:''}<div class="row" style="gap:8px"><button class="btn ${win&&ch.st<chLast(ch.g)?'ghost':'brass'}" data-ra="chretry">🔁 다시 도전</button><button class="btn ghost" data-ra="menu">챌린지 메뉴</button></div></div>`
     :`<div class="acts"><div class="waitmsg" style="text-align:center">방장이 다음 단계를 고르는 중이에요</div><div class="row"><button class="btn ghost" data-ra="menu">챌린지 메뉴로 나가기</button></div></div>`;
   el.className='chres '+(win?'win':'lose');
   el.innerHTML=`<div class="box">${win?'<div class="confetti"></div>':''}<button class="x" type="button" aria-label="닫기">✕</button>
     <div class="t">${win?'STAGE CLEAR!':'DEFEAT'}</div>
     <div class="be">${b.emo}</div>
-    <div class="sub">${win?`${esc(b.n)} 격파!${ch.st===5?' 진정한 챔피언이에요!':''}`:`${esc(b.n)}: “${esc(r.say||'다음엔 더 잘해 봐.')}”`}</div>
+    <div class="sub">${win?`${esc(b.n)} 격파!${ch.st===6?' 역대급 전설이 탄생했어요!':ch.st===5?' 진정한 챔피언이에요!':''}`:`${esc(b.n)}: “${esc(r.say||'다음엔 더 잘해 봐.')}”`}</div>
     ${stats}${unlock}${!win?'<div class="sub" style="font-size:12.5px">아쉬워요! 다시 도전하면 이길 수 있어요.</div>':''}${acts}</div>`;
   el.hidden=false;
   if(win){const cf=el.querySelector('.confetti');const cols=['#ffd760','#ff8a3c','#7fd8a4','#8fb8ff','#ff5a4e','#fff'];for(let i=0;i<70;i++){const p=document.createElement('i');p.style.left=Math.random()*100+'%';p.style.background=cols[i%cols.length];p.style.animationDuration=(1.6+Math.random()*1.8)+'s';p.style.animationDelay=(Math.random()*.6)+'s';p.style.transform=`rotate(${Math.random()*180}deg)`;cf.appendChild(p)}

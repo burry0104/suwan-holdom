@@ -599,8 +599,8 @@ class Room {
     const dealHoles = deck => { const holes = {}; for (let r = 0; r < 2; r++) { let j = hd.d; for (let c = 0; c < elig.length; c++) { j = this.nextIn(j); const pid = this.seats[j].pid; (holes[pid] || (holes[pid] = [])).push(deck.pop()); } } return holes; };
     hd.holes = dealHoles(hd.deck);
     // 행운 모드: 리버까지 가면 이 플레이어가 반드시 혼자 이기도록 덱을 골라요
-    const lucky = this.seats.find(s => s.lucky && s.inHand);
-    if (lucky && rnd() < LUCKY_RATE) {
+    const lucky = this.seats.find(s => s.rig && s.inHand) || this.seats.find(s => s.lucky && s.inHand);
+    if (lucky && (lucky.rig || rnd() < LUCKY_RATE)) {
       const ints = cs => cs.map(c => CARD_INT[c]);
       const boardOf = deck => { const d = deck.slice(); d.pop(); const bd = [d.pop(), d.pop(), d.pop()]; d.pop(); bd.push(d.pop()); d.pop(); bd.push(d.pop()); return bd; };
       let picked = null, backup = null;
@@ -857,6 +857,7 @@ class Room {
         if (this.botFor !== hd.sq) { this.botFor = hd.sq; this.botAt = now + L.slow[0] + randInt(L.slow[1] - L.slow[0]); }
         else if (now >= this.botAt) {
           let d; try { d = botDecide(this, hd.tu); } catch (e) { console.error('bot error', e); d = [hd.cb > s.bet ? 'fold' : 'check']; }
+          if (s.rig && d[0] === 'fold') d = [hd.cb > s.bet ? 'call' : 'check']; // 이기도록 정해진 보스는 절대 접지 않음
           if (!this.act(hd.tu, d[0], d[1])) this.act(hd.tu, hd.cb > s.bet ? 'call' : 'check');
         }
       }
@@ -1597,7 +1598,9 @@ const CH_STAGES = {
     { name: '꾀돌이 여우', emo: '🦊', lv: 'normal', boss: 10000, diff: '보통', quote: '속는 쪽이 지는 거야~ 히히.', skill: '가끔 블러핑을 섞어요' },
     { name: '카지노 상어', emo: '🦈', lv: 'hard', boss: 12000, diff: '살짝 어려움', quote: '피 냄새가 나는군. 네 칩에서.', skill: '확률 계산이 정확해요 · 보스 칩 1.2배' },
     { name: '포커페이스 늑대', emo: '🐺', lv: 'pro', boss: 15000, diff: '많이 어려움', quote: '네 손이 떨리는 게 다 보여.', skill: '네 습관을 읽고 손패 범위를 계산해요 · 보스 칩 1.5배' },
-    { name: '수완 드래곤', emo: '🐉', lv: 'boss', boss: 20000, diff: '극악', quote: '여기까지 온 건 칭찬하지. 하지만 여기가 끝이다.', skill: '매 베팅마다 최선의 수 · 습관 완전 분석 · 보스 칩 2배' }
+    { name: '수완 드래곤', emo: '🐉', lv: 'boss', boss: 20000, diff: '극악', quote: '여기까지 온 건 칭찬하지. 하지만 여기가 끝이다.', skill: '매 베팅마다 최선의 수 · 습관 완전 분석 · 보스 칩 2배' },
+    // 히든 마지막 관문: 도전 시작할 때 한 번 운명을 굴려서 도전자 승률이 약 5%가 되도록 조정 (fate = 이길 확률)
+    { name: '역대급 미친 수완 괴물', emo: '👹', lv: 'boss', boss: 30000, fate: 0.05, diff: '역대급', quote: '드래곤을 쓰러뜨렸다고? 그건 내 애완동물이었다.', skill: '승률 5%의 마지막 관문 · 패가 미친 듯이 붙어요 · 절대 물러서지 않아요 · 보스 칩 3배' }
   ],
   bj: [
     { name: '병아리 딜러', emo: '🐣', hp: 3000, rounds: 15, maxBet: 5000, rules: { ...BJ_STD }, diff: '쉬움', quote: '삐약! 카드 나눠 주는 건 자신 있어요!', skill: '기본 규칙 · 딜러 소프트 17 스탠드' },
@@ -1622,6 +1625,7 @@ const CH_TAUNT = {
 };
 // 화면에 보낼 단계 정보 (챌린지 메뉴에서 씀)
 const CH_INFO_PUB = Object.fromEntries(Object.entries(CH_STAGES).map(([g, L]) => [g, L.map(c => ({ name: c.name, emo: c.emo, diff: c.diff, quote: c.quote, skill: c.skill, boss: c.boss || 0, hp: c.hp || 0, rounds: c.rounds || 0, minBet: 1000, maxBet: c.maxBet || 0 }))]));
+const chLast = g => CH_STAGES[g].length; // 게임별 마지막 단계 (홀덤 6, 나머지 5)
 const chHpScale = (per, n, ex) => Math.round(per * Math.pow(n, ex) / 100) * 100;
 
 /* ---- 명예의 전당 기록: 서버 파일 + 접속한 사람들 폰에도 서명된 사본을 보관 ----
@@ -1634,7 +1638,7 @@ const recSig = r => crypto.createHmac('sha256', HOF_SECRET).update(JSON.stringif
 function recClean(x) {
   if (!x || typeof x !== 'object' || !Array.isArray(x.team)) return null;
   const r = { id: String(x.id || '').slice(0, 12), g: String(x.g || ''), st: Math.floor(+x.st), team: x.team.slice(0, 8).map(m => [String(m && m[0] || '').slice(0, 24), String(m && m[1] || '').slice(0, 10)]), t: Math.floor(+x.t) || 0, n: Math.floor(+x.n) || 0, ms: Math.floor(+x.ms) || 0 };
-  if (!r.id || !CH_STAGES[r.g] || !(r.st >= 1 && r.st <= 5)) return null;
+  if (!r.id || !CH_STAGES[r.g] || !(r.st >= 1 && r.st <= chLast(r.g))) return null;
   r.sig = recSig(r);
   return r.sig === String(x.sig || '') ? r : null;
 }
@@ -1656,10 +1660,10 @@ function hofLoad() {
   catch (e) { /* 처음 실행이면 파일 없음 */ }
 }
 function chCleared(uid, g) { const set = new Set(); if (!uid) return set; for (const r of HOF.recs) if (r.g === g && r.team.some(m => m[0] === uid)) set.add(r.st); return set; }
-function chMaxOpen(uid, g) { let m = 0; for (const x of chCleared(uid, g)) m = Math.max(m, x); return Math.min(5, m + 1); }
+function chMaxOpen(uid, g) { let m = 0; for (const x of chCleared(uid, g)) m = Math.max(m, x); return Math.min(chLast(g), m + 1); }
 
 const ChMix = Base => class extends Base {
-  chInit(g, st) { this.ch = { g, st, seq: 0, state: 'ready', team: [], t0: 0, result: null, introUntil: 0, hpMax: 0, base: 0, stk: {}, dmg: 0, net: 0, fresh: [], marks: {} }; this.chApply(); }
+  chInit(g, st) { this.ch = { g, st, fate: '', seq: 0, state: 'ready', team: [], t0: 0, result: null, introUntil: 0, hpMax: 0, base: 0, stk: {}, dmg: 0, net: 0, fresh: [], marks: {} }; this.chApply(); }
   get cfg() { return CH_STAGES[this.ch.g][this.ch.st - 1]; }
   chApply() {}
   addBot() { return '챌린지에서는 AI를 따로 넣을 수 없어요. 보스랑 싸워야 해요!'; }
@@ -1680,6 +1684,8 @@ const ChMix = Base => class extends Base {
     const humans = this.seats;
     if (!humans.length) return '접속한 사람이 있어야 도전할 수 있어요';
     this.chApply();
+    // 승률 조정 단계면 이번 도전의 운명을 미리 정함 (화면에는 안 보냄)
+    ch.fate = this.cfg.fate ? (rnd() < this.cfg.fate ? 'win' : 'lose') : '';
     ch.team = humans.map(s => [s.uid || '', s.name]);
     ch.seq++; ch.state = 'intro'; ch.introUntil = now + CH_INTRO_MS; ch.result = null; ch.t0 = now;
     ch.dmg = 0; ch.net = 0; ch.fresh = []; ch.marks = {};
@@ -1708,7 +1714,7 @@ const ChMix = Base => class extends Base {
       ch.fresh = fresh.map(m => m[1]);
       if (fresh.length) { rec = { id: crypto.randomBytes(6).toString('base64url'), g: ch.g, st: ch.st, team, t: now, n, ms }; rec.sig = recSig(rec); hofAdd(rec); }
     }
-    const say = win ? (ch.st === 5 ? '말도 안 돼… 네가 진짜 챔피언이다.' : '크윽… 다음 단계에서 기다리겠다!') : CH_TAUNT.win[randInt(CH_TAUNT.win.length)];
+    const say = win ? (ch.st === chLast(ch.g) && ch.st > 5 ? '이럴 수가… 5%의 기적을 네가 해냈구나. 너야말로 진짜 괴물이다.' : ch.st === 5 ? '말도 안 돼… 네가 진짜 챔피언이다.' : '크윽… 다음 단계에서 기다리겠다!') : CH_TAUNT.win[randInt(CH_TAUNT.win.length)];
     ch.result = { win: win ? 1 : 0, n, ms, rec: rec ? rec.id : '', at: now, say };
     this.log(win ? `🏆 STAGE ${ch.st} CLEAR! ${c.emo} ${c.name} 격파 · ${n}${this.chUnit()} 만에` : `💀 STAGE ${ch.st} 실패… ${c.emo} ${c.name}에게 졌어요`);
     setTimeout(() => this.bossSay(say), 2200);
@@ -1721,13 +1727,13 @@ const ChMix = Base => class extends Base {
     if (cmd === 'start' && this.status === 'lobby') return this.chStart();
     if (cmd === 'chretry' && this.status === 'over') return this.chStart();
     if (cmd === 'chnext' && this.status === 'over') {
-      if (ch.state !== 'clear' || ch.st >= 5) return '다음 단계가 없어요';
+      if (ch.state !== 'clear' || ch.st >= chLast(ch.g)) return '다음 단계가 없어요';
       if (ch.st + 1 > this.chHostMax()) return '방장이 이 단계를 깨야 다음 단계를 열 수 있어요';
       ch.st++; return this.chStart();
     }
     if (cmd === 'chstage' && this.status === 'lobby') {
       const st = Math.floor(+(arg && arg.st));
-      if (!(st >= 1 && st <= 5)) return '';
+      if (!(st >= 1 && st <= chLast(ch.g))) return '';
       if (st > this.chHostMax()) return '아직 열리지 않은 단계예요';
       ch.st = st; this.chApply(); this.log(`도전 단계 변경 · STAGE ${st} ${this.cfg.emo} ${this.cfg.name}`); this.dirty = true; return '';
     }
@@ -1779,9 +1785,11 @@ class ChHoldem extends ChMix(Room) {
   chNo() { return this.hand.no; }
   chSetup(humans) {
     const c = this.cfg;
-    humans.forEach(s => { this.resetSeatHand(s); s.stack = CH_START; s.out = false; s.st0 = CH_START; });
+    const fate = this.ch.fate;
+    humans.forEach(s => { this.resetSeatHand(s); s.stack = CH_START; s.out = false; s.st0 = CH_START; s.rig = fate === 'win'; });
     const boss = this.newSeat('boss:' + crypto.randomBytes(5).toString('hex'), c.name);
-    Object.assign(boss, { bot: true, lv: c.lv, boss: true, emo: c.emo, stack: c.boss * humans.length });
+    // rig: 끝까지 가면 그 쪽이 반드시 이기도록 카드를 고름 (운명이 'lose'면 보스, 'win'이면 도전자)
+    Object.assign(boss, { bot: true, lv: c.lv, boss: true, emo: c.emo, stack: c.boss * humans.length, rig: fate === 'lose' });
     this.seats.push(boss);
     this.ch.hpMax = boss.stack;
     this.settings.sb = CH_BLINDS[0][0]; this.settings.bb = CH_BLINDS[0][1];
@@ -1819,8 +1827,8 @@ class ChHoldem extends ChMix(Room) {
     this.status = 'lobby'; this.nextAt = 0; this.runoutAt = 0;
     this.hand = this.blankHand(this.hand.sq + 1); this.champ = ''; this.msg = '';
     this.seats = this.seats.filter(s => !s.bot && s.online && !s.kicked);
-    this.seats.forEach(s => { this.resetSeatHand(s); s.stack = CH_START; s.out = false; });
-    this.ch.state = 'ready'; this.ch.result = null;
+    this.seats.forEach(s => { this.resetSeatHand(s); s.stack = CH_START; s.out = false; s.rig = false; });
+    this.ch.state = 'ready'; this.ch.result = null; this.ch.fate = '';
     this.chSeatSpectators();
     this.log('도전 대기실로 돌아왔어요'); this.dirty = true;
   }
@@ -1996,7 +2004,7 @@ function handle(msg) {
     // 챌린지 방 만들기 (solo면 바로 시작)
     const name = clean(msg.name, 10) || '도전자';
     const g = String(msg.ch.g || ''), st = Math.floor(+msg.ch.st);
-    if (!CH_STAGES[g] || !(st >= 1 && st <= 5)) return;
+    if (!CH_STAGES[g] || !(st >= 1 && st <= chLast(g))) return;
     const uid = clean(msg.uid, 24);
     if (st > chMaxOpen(uid, g)) { tell(pid, 'nojoin', `${CH_GAMES[g]} ${st}단계는 아직 잠겨 있어요. 앞 단계를 먼저 깨 주세요`); return; }
     let code; do { code = Array.from({ length: 5 }, () => CODE_ABC[randInt(CODE_ABC.length)]).join(''); } while (rooms.has(code));
